@@ -9,6 +9,12 @@ const DEFAULT_POSITION = [0.0112, 4.3343, 14.1853];
 const DEFAULT_ROTATION = [-0.2173, -0.0038, -0.0008];
 const DEFAULT_TARGET = [0.0497, 2.1504, 4.2955];
 
+// The far end of the wheel/drag transition — progress 1. Same fov as the
+// default shot, so the transition only has to interpolate the transform.
+const FOCUS_POSITION = [-0.0084, 5.0437, 10.7963];
+const FOCUS_ROTATION = [-0.4068, -0.0084, -0.0036];
+const FOCUS_TARGET = [0.051, 2.2633, 4.3422];
+
 export class Camera {
   constructor() {
     this.experience = Experience.getInstance();
@@ -32,6 +38,36 @@ export class Camera {
       smoothing: 6,
     };
 
+    // Wheel (middle mouse) on desktop, vertical drag on touch, scrubbing the
+    // camera between the default shot and the focus shot. `target` is what the
+    // input writes — a straight 0..1 position along the trip, so half a scroll
+    // is half the distance. `progress` is what actually gets applied, chasing
+    // `target` so the camera eases instead of snapping frame to frame.
+    //
+    // `wheelDistance` is how much accumulated wheel delta (in px) makes the
+    // full trip; `dragDistance` is the same thing for touch, as a fraction of
+    // the screen height — 1 means a full-height swipe covers the whole
+    // transition.
+    this.transition = {
+      enabled: true,
+      progress: 0,
+      target: 0,
+      wheelDistance: 1000,
+      dragDistance: 1,
+      smoothing: 6,
+    };
+
+    // Endpoints, held as objects so the per-frame lerp doesn't rebuild them.
+    this.defaultPosition = new THREE.Vector3(...DEFAULT_POSITION);
+    this.defaultRotation = new THREE.Euler(...DEFAULT_ROTATION);
+    this.defaultTarget = new THREE.Vector3(...DEFAULT_TARGET);
+    this.focusPosition = new THREE.Vector3(...FOCUS_POSITION);
+    this.focusRotation = new THREE.Euler(...FOCUS_ROTATION);
+    this.focusTarget = new THREE.Vector3(...FOCUS_TARGET);
+
+    // Last touch Y, for turning touchmove into a per-frame delta.
+    this.lastTouchY = null;
+
     // The shot itself. Parallax is layered on top of this each frame rather
     // than written into the camera as state, so it can't drift over time and
     // logState()/resetToDefault() still deal in the real framing.
@@ -43,6 +79,7 @@ export class Camera {
 
     this.init();
     this.setOrbitControls();
+    this.setTransitionInput();
   }
 
   init() {
@@ -77,6 +114,116 @@ export class Camera {
     }
   }
 
+  /**
+   * Wires the wheel and the touch drag to the transition. Both are passive —
+   * nothing here calls preventDefault, so the page keeps its native scroll if
+   * it ever grows one.
+   */
+  setTransitionInput() {
+    window.addEventListener(
+      "wheel",
+      (event) => {
+        // Firefox on some setups reports lines rather than pixels; normalise
+        // so a notch is worth roughly the same everywhere. Negated: scrolling
+        // up runs toward the focus shot, down winds back to the default.
+        const deltaY = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+        this.nudgeTransition(-deltaY / this.transition.wheelDistance);
+      },
+      { passive: true },
+    );
+
+    window.addEventListener(
+      "touchstart",
+      (event) => {
+        this.lastTouchY = event.touches[0]?.clientY ?? null;
+      },
+      { passive: true },
+    );
+
+    window.addEventListener(
+      "touchmove",
+      (event) => {
+        const y = event.touches[0]?.clientY;
+        if (y === undefined || this.lastTouchY === null) return;
+
+        // Finger down runs toward the focus shot, matching wheel-up.
+        const dragged = y - this.lastTouchY;
+        this.lastTouchY = y;
+
+        const full = this.experience.sizes.height * this.transition.dragDistance;
+        this.nudgeTransition(dragged / full);
+      },
+      { passive: true },
+    );
+
+    // Dropping the finger has to clear the anchor, otherwise the next touch
+    // starts from wherever the last one ended and jumps the transition.
+    const clearTouch = () => {
+      this.lastTouchY = null;
+    };
+    window.addEventListener("touchend", clearTouch, { passive: true });
+    window.addEventListener("touchcancel", clearTouch, { passive: true });
+  }
+
+  /**
+   * Moves the transition along by `amount` (1 = the whole trip), clamped to
+   * the two endpoints. Ignored while OrbitControls has the camera — the wheel
+   * is its zoom — and before the experience has started, so a scroll over the
+   * preloader doesn't bank progress the user can't see.
+   */
+  nudgeTransition(amount) {
+    if (!this.transition.enabled) return;
+    if (this.controls?.enabled) return;
+    if (!this.experience.started) return;
+
+    this.transition.target = THREE.MathUtils.clamp(
+      this.transition.target + amount,
+      0,
+      1,
+    );
+  }
+
+  /**
+   * Eases `progress` toward `target` and writes the interpolated shot into the
+   * base transform, so parallax still layers on top of it. Returns whether it
+   * drove anything, which is what tells update() the base is worth applying.
+   *
+   * The two rotations are close enough (and share an order) that lerping the
+   * Euler components reads the same as slerping quaternions, without needing
+   * to keep a pair around.
+   */
+  updateTransition() {
+    const t = this.transition;
+    if (!t.enabled || this.controls?.enabled) return false;
+
+    const delta = Math.min(this.experience.time.delta, 100) / 1000;
+    t.progress = THREE.MathUtils.lerp(
+      t.progress,
+      t.target,
+      1 - Math.exp(-t.smoothing * delta),
+    );
+
+    // Exponential easing never quite arrives; settle it so a parked camera
+    // isn't drifting by a millionth of a unit every frame.
+    if (Math.abs(t.target - t.progress) < 0.0001) t.progress = t.target;
+
+    const k = t.progress;
+    const lerp = THREE.MathUtils.lerp;
+
+    this.basePosition.lerpVectors(this.defaultPosition, this.focusPosition, k);
+    this.baseRotation.set(
+      lerp(this.defaultRotation.x, this.focusRotation.x, k),
+      lerp(this.defaultRotation.y, this.focusRotation.y, k),
+      lerp(this.defaultRotation.z, this.focusRotation.z, k),
+    );
+
+    // Only read while OrbitControls is toggled on, but keeping it in step means
+    // flipping into orbit mid-transition doesn't swing the view somewhere else.
+    this.controls?.target.lerpVectors(this.defaultTarget, this.focusTarget, k);
+
+    return true;
+  }
+
   // Called from Experience.init() rather than the constructor: `experience.gui`
   // doesn't exist until renderer.init() has built the Inspector, and Camera is
   // constructed before that.
@@ -87,6 +234,19 @@ export class Camera {
       .add(this, "orbitControlsEnabled")
       .name("Orbit Controls")
       .onChange(() => this.setOrbitControlsEnabled(this.orbitControlsEnabled));
+
+    const transition = folder.addFolder("Scroll Transition");
+    transition.add(this.transition, "enabled").name("Enabled");
+    transition.add(this.transition, "target", 0, 1, 0.001).name("Progress");
+    transition
+      .add(this.transition, "wheelDistance", 200, 4000, 50)
+      .name("Wheel Distance");
+    transition
+      .add(this.transition, "dragDistance", 0.2, 2, 0.05)
+      .name("Drag Distance");
+    transition
+      .add(this.transition, "smoothing", 0.5, 12, 0.1)
+      .name("Smoothing");
 
     const parallax = folder.addFolder("Mouse Parallax");
     parallax.add(this.parallax, "enabled").name("Enabled");
@@ -122,7 +282,9 @@ export class Camera {
     } else {
       // Coming back from orbit: adopt wherever it was left as the new base,
       // otherwise parallax would yank the view back to the old shot on the
-      // next frame. Zero the pointer so it eases out from dead centre.
+      // next frame. Zero the pointer so it eases out from dead centre. With
+      // the scroll transition on, that adoption only lasts a frame — the
+      // transition owns the base and puts its own shot back.
       this.basePosition.copy(this.instance.position);
       this.baseRotation.copy(this.instance.rotation);
       this.smoothedPointer.set(0, 0);
@@ -132,6 +294,10 @@ export class Camera {
   }
 
   resetToDefault() {
+    this.transition.progress = 0;
+    this.transition.target = 0;
+    this.lastTouchY = null;
+
     this.basePosition.set(...DEFAULT_POSITION);
     this.baseRotation.set(...DEFAULT_ROTATION);
     this.smoothedPointer.set(0, 0);
@@ -232,8 +398,19 @@ export class Camera {
     // should flip `controls.enabled` off so OrbitControls doesn't fight it.
     if (this.controls && this.controls.enabled) {
       this.controls.update();
-    } else if (this.isParallaxActive()) {
+      return;
+    }
+
+    // Order matters: the transition sets the base shot, then parallax offsets
+    // from it. With parallax off the base has to be written out by hand,
+    // otherwise the camera would sit wherever it was last left.
+    const driven = this.updateTransition();
+
+    if (this.isParallaxActive()) {
       this.updateParallax();
+    } else if (driven) {
+      this.instance.position.copy(this.basePosition);
+      this.instance.rotation.copy(this.baseRotation);
     }
   }
 }
