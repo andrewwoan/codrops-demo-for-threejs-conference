@@ -18,6 +18,29 @@ export class Camera {
     // true if you want to land in orbit mode.
     this.orbitControlsEnabled = false;
 
+    // Mouse parallax. The camera drifts toward the pointer and turns to follow
+    // it — pointer right, camera slides and looks right; same for up/down.
+    // `position` is in world units, `rotation` in radians, both at full
+    // deflection (pointer at the edge of the screen). `smoothing` is the
+    // exponential follow rate — higher is snappier, lower is floatier.
+    this.parallax = {
+      enabled: true,
+      positionX: 0.4,
+      positionY: 0.25,
+      rotationX: 0.04,
+      rotationY: 0.06,
+      smoothing: 6,
+    };
+
+    // The shot itself. Parallax is layered on top of this each frame rather
+    // than written into the camera as state, so it can't drift over time and
+    // logState()/resetToDefault() still deal in the real framing.
+    this.basePosition = new THREE.Vector3(...DEFAULT_POSITION);
+    this.baseRotation = new THREE.Euler(...DEFAULT_ROTATION);
+
+    // Smoothed pointer, chasing mouse.instance.
+    this.smoothedPointer = new THREE.Vector2(0, 0);
+
     this.init();
     this.setOrbitControls();
   }
@@ -65,6 +88,14 @@ export class Camera {
       .name("Orbit Controls")
       .onChange(() => this.setOrbitControlsEnabled(this.orbitControlsEnabled));
 
+    const parallax = folder.addFolder("Mouse Parallax");
+    parallax.add(this.parallax, "enabled").name("Enabled");
+    parallax.add(this.parallax, "positionX", 0, 2, 0.01).name("Move X");
+    parallax.add(this.parallax, "positionY", 0, 2, 0.01).name("Move Y");
+    parallax.add(this.parallax, "rotationX", 0, 0.3, 0.005).name("Look X");
+    parallax.add(this.parallax, "rotationY", 0, 0.3, 0.005).name("Look Y");
+    parallax.add(this.parallax, "smoothing", 0.5, 12, 0.1).name("Smoothing");
+
     folder.add({ log: () => this.logState() }, "log").name("Log Camera State");
 
     folder
@@ -88,15 +119,74 @@ export class Camera {
       this.controls.target
         .copy(this.instance.position)
         .addScaledVector(forward, distance);
+    } else {
+      // Coming back from orbit: adopt wherever it was left as the new base,
+      // otherwise parallax would yank the view back to the old shot on the
+      // next frame. Zero the pointer so it eases out from dead centre.
+      this.basePosition.copy(this.instance.position);
+      this.baseRotation.copy(this.instance.rotation);
+      this.smoothedPointer.set(0, 0);
     }
 
     this.controls.enabled = enabled;
   }
 
   resetToDefault() {
+    this.basePosition.set(...DEFAULT_POSITION);
+    this.baseRotation.set(...DEFAULT_ROTATION);
+    this.smoothedPointer.set(0, 0);
+
     this.instance.position.set(...DEFAULT_POSITION);
     this.instance.rotation.set(...DEFAULT_ROTATION);
     this.controls.target.set(...DEFAULT_TARGET);
+  }
+
+  /**
+   * Parallax owns the camera transform only when nothing else does — orbit
+   * mode wins, and it stays still until the experience has started, so a
+   * preloader overlay (when one is back) doesn't have the scene sliding
+   * around behind it.
+   */
+  isParallaxActive() {
+    return (
+      this.parallax.enabled &&
+      !this.controls?.enabled &&
+      this.experience.started
+    );
+  }
+
+  /**
+   * Eases the smoothed pointer toward the raw one, then rebuilds the camera
+   * transform as base + offset. Position and rotation move the same direction
+   * so the two read as one gesture: slide right while turning right.
+   */
+  updateParallax() {
+    const mouse = this.experience.mouse?.instance;
+    if (!mouse) return;
+
+    const p = this.parallax;
+
+    // Frame-rate independent easing — a fixed lerp factor would make the
+    // follow speed depend on refresh rate. Delta is clamped so a backgrounded
+    // tab doesn't come back with one giant jump.
+    const delta = Math.min(this.experience.time.delta, 100) / 1000;
+    this.smoothedPointer.lerp(mouse, 1 - Math.exp(-p.smoothing * delta));
+
+    const { x, y } = this.smoothedPointer;
+
+    this.instance.position.set(
+      this.basePosition.x + x * p.positionX,
+      this.basePosition.y + y * p.positionY,
+      this.basePosition.z,
+    );
+
+    // Negative yaw turns right in three.js, so x is flipped here; pitch is
+    // not — positive rotation.x looks up, which is what a pointer up wants.
+    this.instance.rotation.set(
+      this.baseRotation.x + y * p.rotationX,
+      this.baseRotation.y - x * p.rotationY,
+      this.baseRotation.z,
+    );
   }
 
   /**
@@ -108,7 +198,14 @@ export class Camera {
    */
   logState() {
     const round = (value) => Number(value.toFixed(4));
-    const { position: p, rotation: r, fov } = this.instance;
+
+    // While parallax is running the camera sits at base + a pointer offset,
+    // so log the base — otherwise you'd bake whatever the mouse happened to
+    // be doing into the default shot.
+    const parallaxed = this.isParallaxActive();
+    const p = parallaxed ? this.basePosition : this.instance.position;
+    const r = parallaxed ? this.baseRotation : this.instance.rotation;
+    const { fov } = this.instance;
     const t = this.controls?.target;
 
     const snippet = [
@@ -135,6 +232,8 @@ export class Camera {
     // should flip `controls.enabled` off so OrbitControls doesn't fight it.
     if (this.controls && this.controls.enabled) {
       this.controls.update();
+    } else if (this.isParallaxActive()) {
+      this.updateParallax();
     }
   }
 }
