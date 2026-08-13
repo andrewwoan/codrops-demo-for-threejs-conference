@@ -191,8 +191,6 @@ export class Baked {
     }
 
     for (const [key, material] of this.materials) {
-      // Only useful on a bake that ships a real alpha mask — see the note on
-      // ALPHA_TEST_BY_PREFIX. Left here so it's one drag to find out.
       folder
         .add(material, "alphaTest", 0, 1, 0.01)
         .name(`${key} alphaTest`)
