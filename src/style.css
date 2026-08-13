@@ -1,0 +1,129 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
+#experience-wrapper {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+}
+
+#experience-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+   Preloader — neutral loading overlay. Restyle to match whatever the scene
+   ends up looking like; the class names are what Preloader.js queries.
+--------------------------------------------------------------------------- */
+.preloader {
+  --fg: #111111;
+  --bg: #f4f4f4;
+
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+}
+
+.preloader__inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.preloader__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.preloader__label {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.preloader__progress-wrapper {
+  width: 100%;
+  height: 4px;
+  background-color: rgba(17, 17, 17, 0.12);
+  overflow: hidden;
+}
+
+.preloader__progress-bar {
+  height: 100%;
+  width: 0%;
+  background-color: var(--fg);
+  transition: width 0.3s ease;
+}
+
+.preloader__percent {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  opacity: 0.6;
+}
+
+.preloader__intro {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+  text-align: center;
+}
+
+.preloader__description {
+  font-size: 15px;
+  line-height: 1.8;
+  opacity: 0.8;
+}
+
+.preloader__buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.preloader__btn {
+  padding: 12px 34px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--fg);
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.preloader__btn--primary:hover {
+  background-color: var(--fg);
+  color: var(--bg);
+}

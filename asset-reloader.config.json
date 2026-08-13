@@ -1,0 +1,9 @@
+{
+  "publicDir": "public",
+  "modelsDir": "public/models",
+  "texturesDir": "public/textures",
+  "assetsFile": "src/Experience/Utils/assets.js",
+  "worldDir": "src/Experience/World",
+  "registryFile": "src/Experience/World/models.generated.js",
+  "template": "asset-reloader.model-template.tmpl"
+}
