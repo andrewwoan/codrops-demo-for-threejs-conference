@@ -20,6 +20,7 @@ const bakedTextures = [
   "fourth",
   "fifth",
   "sixth",
+  "seventh",
 ].map((id) => ({
   name: `baked${id[0].toUpperCase()}${id.slice(1)}`,
   type: "texture",

@@ -25,10 +25,10 @@ export class Camera {
     // exponential follow rate — higher is snappier, lower is floatier.
     this.parallax = {
       enabled: true,
-      positionX: 0.4,
+      positionX: 0.2,
       positionY: 0.25,
       rotationX: 0.04,
-      rotationY: 0.06,
+      rotationY: 0.03,
       smoothing: 6,
     };
 
