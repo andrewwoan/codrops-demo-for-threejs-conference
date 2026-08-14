@@ -8,6 +8,7 @@ import { Resources } from "./Utils/Resources";
 import { Mouse } from "./Mouse";
 import { Raycaster } from "./Raycaster";
 import { Device } from "./Utils/Device";
+import { ZoomSlider } from "./ZoomSlider";
 // import { Preloader } from "./Preloader"; // temporarily disabled
 import { DebugTransform } from "./DebugTransform";
 
@@ -50,6 +51,10 @@ export class Experience {
     // `this.gui` only exists once renderer.init() has run.
     this.camera.setupGUI();
 
+    // The zoom lever, bottom right. Built after the camera it drives, and after
+    // the panel above, so both are moving the same value from the start.
+    this.zoomSlider = new ZoomSlider();
+
     // Click-to-transform gizmo. Constructed only on #debug, and only after
     // renderer.init() — it draws into `this.gui`, which that call creates.
     // Saving from it writes transform-overrides.json, which the Blender
@@ -84,6 +89,7 @@ export class Experience {
     this.world.update();
     this.renderer.update();
     this.camera.update();
+    this.zoomSlider?.update();
     this.raycaster.update();
     this.debugTransform?.update();
   }

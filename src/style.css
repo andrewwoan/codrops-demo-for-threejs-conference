@@ -21,12 +21,433 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Preloader — neutral loading overlay. Restyle to match whatever the scene
-   ends up looking like; the class names are what Preloader.js queries.
+   Palette. Everything on screen is meant to read as part of the set — cut from
+   the same oak as the board, standing against the sage-painted planking behind
+   it. Sampled off the render, so the UI and the scene stay in step.
+
+   `--grain` is the scene's own wood texture, reused here rather than shipping a
+   second image: it's already in the browser cache by the time any of this is
+   on screen. It's a pale oak, so every surface below multiplies a brown over
+   it to bring it down to the board's walnut.
+--------------------------------------------------------------------------- */
+:root {
+  --wood-deep: #2a190e;
+  --wood: #63421f;
+  --wood-warm: #8a5c33;
+  --engraved: #e8c79c;
+  --amber: #f0b96e;
+  --sage: #79855f;
+  --sage-deep: #4a5239;
+  --grain: url("/textures/wood/color.webp");
+  --ui-font: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    "Times New Roman", serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Carved oak — the shared surface behind every button.
+
+   Three layers do the work: a warm gradient multiplied into the grain for the
+   walnut tone, a hairline of lit sawdust along the top edge and a dark seat
+   along the bottom for the bevel, and a contact shadow so the piece sits on
+   the scene instead of floating over it. Lettering is sanded-back pale oak
+   with a dark edge under it, the way the board's own title reads.
+--------------------------------------------------------------------------- */
+.touch-btn,
+.board-btn,
+.board-readout {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(28, 16, 8, 0.55);
+  background-image: linear-gradient(
+      165deg,
+      rgba(138, 92, 51, 0.92),
+      rgba(74, 46, 22, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    260px auto;
+  background-blend-mode: multiply;
+  color: var(--engraved);
+  font-family: var(--ui-font);
+  text-shadow:
+    0 1px 1px rgba(24, 12, 4, 0.65),
+    0 -1px 0 rgba(255, 226, 184, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 3px 8px rgba(20, 12, 5, 0.4);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Pressing seats the piece into its socket: it drops a pixel, the lit top edge
+   goes out, and the shadow moves inside. */
+.touch-btn[data-pressed="true"],
+.board-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 5px rgba(22, 11, 4, 0.6),
+    inset 0 -1px 0 rgba(255, 219, 168, 0.1),
+    0 1px 3px rgba(20, 12, 5, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+   Touch controls — flippers and plunger. There is no markup for these in
+   index.html; World/Plinko/Controls.js builds the bar and each control adds
+   its own button, only on a mobile device. On desktop everything here is
+   keyboard-driven and none of this exists.
+
+   Buttons are positioned by flex `order`, set in JS: left flipper 0, plunger
+   1, right flipper 2.
+--------------------------------------------------------------------------- */
+.touch-controls {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 22px calc(22px + env(safe-area-inset-bottom));
+  /* The bar spans the screen, so it must not swallow taps meant for the
+     board — only the buttons themselves take pointer events. */
+  pointer-events: none;
+}
+
+/* Turned wooden knobs, to match the pegs on the board. */
+.touch-btn {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  font-size: 26px;
+  line-height: 1;
+  /* No scrolling, no double-tap zoom, no long-press selection — a flipper is
+     held down, and every one of those defaults fights that. */
+  touch-action: none;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
+}
+
+/* The plunger fills from the bottom as it draws back. `--charge` is written
+   every frame by Plunger.js as a plain 0..1 number, so the hard gradient stop
+   doubles as a charge meter.
+
+   It rides on a pseudo-element rather than the button's own background: the
+   wood underneath is a blended two-layer stack, and re-stating that just to
+   add a fill would mean keeping two copies of it in sync. Screen blending
+   makes the amber read as light coming up through the grain rather than paint
+   sitting on top of it. */
+.touch-btn--plunger {
+  --charge: 0;
+  /* Keeps the screen blend inside the knob — without it the fill would blend
+     against the canvas behind the button. */
+  isolation: isolate;
+}
+
+.touch-btn--plunger::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  mix-blend-mode: screen;
+  background: linear-gradient(
+    to top,
+    rgba(240, 185, 110, 0.85) calc(var(--charge) * 100%),
+    rgba(240, 185, 110, 0) calc(var(--charge) * 100%)
+  );
+}
+
+/* Wound fully back, the glow spills past the rim. */
+.touch-btn--plunger[data-pressed="true"] {
+  box-shadow:
+    inset 0 2px 5px rgba(22, 11, 4, 0.6),
+    0 0 calc(var(--charge) * 18px) rgba(240, 185, 110, 0.45),
+    0 1px 3px rgba(20, 12, 5, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+   Utility actions — top right, on every device. Separated from the thumb bar
+   so a reset can never be hit while reaching for a flipper.
+--------------------------------------------------------------------------- */
+.board-actions {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  right: calc(16px + env(safe-area-inset-right));
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+}
+
+/* A small nameplate screwed to the wall — squared off, not a pill, so it reads
+   as a cut piece of timber. */
+.board-btn {
+  padding: 10px 18px;
+  border-radius: 4px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  touch-action: manipulation;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.15s ease;
+}
+
+/* Hover catches the light the way polished wood does — the lettering warms up
+   rather than the whole slab changing colour. */
+.board-btn:hover {
+  color: #ffe2b8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 190, 0.34),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.4),
+    0 4px 12px rgba(20, 12, 5, 0.45);
+}
+
+/* The ball counter — the same slab as the button beside it, but seated a
+   little deeper and lit a little less, so the row reads as one control and one
+   plaque rather than two buttons. */
+.board-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 10px 16px;
+  border-radius: 4px;
+  cursor: default;
+  /* Reports, never acts — it must not swallow a click meant for the board. */
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.16),
+    inset 0 2px 5px rgba(22, 11, 4, 0.4),
+    0 3px 8px rgba(20, 12, 5, 0.4);
+}
+
+.board-readout__label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(232, 199, 156, 0.62);
+}
+
+/* Tabular figures and a fixed-width font, so a ticking count can't shuffle the
+   plaque's width from under the button next to it. */
+.board-readout__value {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--amber);
+  text-shadow: 0 1px 1px rgba(24, 12, 4, 0.7);
+}
+
+/* At the cap, the next drop recycles the oldest ball. The number heats up. */
+.board-readout[data-full="true"] .board-readout__value {
+  color: #ffd08a;
+  text-shadow:
+    0 0 10px rgba(240, 185, 110, 0.55),
+    0 1px 1px rgba(24, 12, 4, 0.7);
+}
+
+/* ---------------------------------------------------------------------------
+   Zoom lever — bottom right, on every device. A routed oak plate with a groove
+   cut across it and a turned knob riding in it, matching the pegs on the board.
+
+   The markup is built by Experience/ZoomSlider.js around a native range input;
+   everything below is the woodwork over it. The oak here is stated in full
+   rather than shared with `.board-btn`: that rule carries button behaviour —
+   cursor, press states, hover — and a lever wants none of it.
+--------------------------------------------------------------------------- */
+.zoom-slider {
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  right: calc(16px + env(safe-area-inset-right));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid rgba(28, 16, 8, 0.55);
+  border-radius: 4px;
+  background-image: linear-gradient(
+      165deg,
+      rgba(138, 92, 51, 0.92),
+      rgba(74, 46, 22, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    260px auto;
+  background-blend-mode: multiply;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 3px 8px rgba(20, 12, 5, 0.4);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* On touch the thumb bar owns the bottom of the screen — clear the flipper
+   knob (76px) and its 22px of padding, plus a gap. The class is added in JS,
+   not by a media query: the bar exists on device, not at a screen width. */
+.zoom-slider--raised {
+  bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+.zoom-slider__glyph {
+  font-family: var(--ui-font);
+  font-size: 15px;
+  line-height: 1;
+  color: rgba(232, 199, 156, 0.72);
+  text-shadow:
+    0 1px 1px rgba(24, 12, 4, 0.65),
+    0 -1px 0 rgba(255, 226, 184, 0.12);
+}
+
+.zoom-slider__input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 116px;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  /* The knob is dragged sideways; without this a touch drag across it is a
+     browser gesture before it is ever a slider. */
+  touch-action: none;
+}
+
+/* The groove: cut into the plate, so it's a dark seat with a lit lower lip. */
+.zoom-slider__input::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(24, 14, 6, 0.6);
+  box-shadow:
+    inset 0 1px 2px rgba(14, 7, 2, 0.75),
+    0 1px 0 rgba(255, 219, 168, 0.14);
+}
+
+.zoom-slider__input::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(24, 14, 6, 0.6);
+  box-shadow:
+    inset 0 1px 2px rgba(14, 7, 2, 0.75),
+    0 1px 0 rgba(255, 219, 168, 0.14);
+}
+
+/* The knob — the same turned oak as the flipper buttons, at peg size. Lit from
+   above and dropping a shadow into the groove, so it reads as sitting in the
+   track rather than printed on it.
+
+   WebKit lays the thumb out from the top of the track, so it has to be pulled
+   up by half the difference; Firefox centres it and needs no such nudge. */
+.zoom-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border: 1px solid rgba(28, 16, 8, 0.6);
+  border-radius: 50%;
+  background-image: linear-gradient(
+      165deg,
+      rgba(160, 110, 63, 0.96),
+      rgba(90, 58, 28, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    90px auto;
+  background-blend-mode: multiply;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 184, 0.38),
+    inset 0 -2px 3px rgba(22, 11, 4, 0.5),
+    0 2px 4px rgba(20, 12, 5, 0.5);
+}
+
+.zoom-slider__input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(28, 16, 8, 0.6);
+  border-radius: 50%;
+  background-image: linear-gradient(
+      165deg,
+      rgba(160, 110, 63, 0.96),
+      rgba(90, 58, 28, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    90px auto;
+  background-blend-mode: multiply;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 184, 0.38),
+    inset 0 -2px 3px rgba(22, 11, 4, 0.5),
+    0 2px 4px rgba(20, 12, 5, 0.5);
+}
+
+/* Grabbing it catches the light, the way a hand on polished wood does. */
+.zoom-slider__input:hover::-webkit-slider-thumb,
+.zoom-slider__input:active::-webkit-slider-thumb {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 236, 200, 0.5),
+    inset 0 -2px 3px rgba(22, 11, 4, 0.45),
+    0 2px 6px rgba(20, 12, 5, 0.55);
+}
+
+.zoom-slider__input:hover::-moz-range-thumb,
+.zoom-slider__input:active::-moz-range-thumb {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 236, 200, 0.5),
+    inset 0 -2px 3px rgba(22, 11, 4, 0.45),
+    0 2px 6px rgba(20, 12, 5, 0.55);
+}
+
+/* Focus lands on the knob, not the plate — arrow keys move the knob. */
+.zoom-slider__input:focus {
+  outline: none;
+}
+
+.zoom-slider__input:focus-visible::-webkit-slider-thumb {
+  border-color: rgba(255, 226, 184, 0.7);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 226, 184, 0.55),
+    0 0 8px rgba(240, 185, 110, 0.45),
+    0 2px 4px rgba(20, 12, 5, 0.5);
+}
+
+.zoom-slider__input:focus-visible::-moz-range-thumb {
+  border-color: rgba(255, 226, 184, 0.7);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 226, 184, 0.55),
+    0 0 8px rgba(240, 185, 110, 0.45),
+    0 2px 4px rgba(20, 12, 5, 0.5);
+}
+
+/* Keyboard focus has to be visible without breaking the illusion: a sanded
+   ring just inside the edge. */
+.board-btn:focus-visible,
+.touch-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 226, 184, 0.55),
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 3px 8px rgba(20, 12, 5, 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+   Preloader — the sage planking behind the board, with the copy burnt into it.
+   The class names are what Preloader.js queries.
 --------------------------------------------------------------------------- */
 .preloader {
-  --fg: #111111;
-  --bg: #f4f4f4;
+  --fg: #f0dcc0;
+  --bg: #5f6a4b;
 
   position: fixed;
   inset: 0;
@@ -35,10 +456,23 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  /* Painted planking: the grain shows through a heavy wash of sage, with the
+     horizontal seams drawn on top. */
   background-color: var(--bg);
+  background-image: repeating-linear-gradient(
+      to bottom,
+      rgba(28, 34, 18, 0) 0 78px,
+      rgba(28, 34, 18, 0.32) 78px 80px
+    ),
+    linear-gradient(rgba(121, 133, 95, 0.88), rgba(74, 82, 57, 0.94)),
+    var(--grain);
+  background-size:
+    auto,
+    auto,
+    420px auto;
+  background-blend-mode: normal, multiply, normal;
   color: var(--fg);
-  font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial,
-    sans-serif;
+  font-family: var(--ui-font);
 }
 
 .preloader__inner {
@@ -61,22 +495,32 @@ body {
 
 .preloader__label {
   font-size: 11px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  opacity: 0.55;
+  color: rgba(240, 220, 192, 0.7);
+  text-shadow: 0 1px 1px rgba(24, 30, 14, 0.5);
 }
 
+/* A groove routed into the plank, filling with warm oak. */
 .preloader__progress-wrapper {
   width: 100%;
-  height: 4px;
-  background-color: rgba(17, 17, 17, 0.12);
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(24, 30, 14, 0.42);
+  box-shadow:
+    inset 0 1px 2px rgba(18, 22, 10, 0.6),
+    0 1px 0 rgba(255, 240, 214, 0.12);
   overflow: hidden;
 }
 
 .preloader__progress-bar {
   height: 100%;
   width: 0%;
-  background-color: var(--fg);
+  background-image: linear-gradient(
+    to right,
+    var(--wood-warm),
+    var(--amber)
+  );
   transition: width 0.3s ease;
 }
 
@@ -84,7 +528,7 @@ body {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.14em;
-  opacity: 0.6;
+  color: rgba(240, 220, 192, 0.72);
 }
 
 .preloader__intro {
@@ -96,9 +540,10 @@ body {
 }
 
 .preloader__description {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.8;
-  opacity: 0.8;
+  color: rgba(245, 230, 206, 0.9);
+  text-shadow: 0 1px 2px rgba(24, 30, 14, 0.45);
 }
 
 .preloader__buttons {
@@ -108,22 +553,54 @@ body {
   flex-wrap: wrap;
 }
 
+/* Same carved slab as the board buttons, sized up for a single deliberate
+   press. Not sharing the .board-btn class because the preloader outlives any
+   one board and shouldn't inherit its layout. */
 .preloader__btn {
-  padding: 12px 34px;
+  position: relative;
+  overflow: hidden;
+  padding: 14px 38px;
+  border: 1px solid rgba(28, 16, 8, 0.6);
+  border-radius: 4px;
+  background-image: linear-gradient(
+      165deg,
+      rgba(138, 92, 51, 0.94),
+      rgba(74, 46, 22, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    260px auto;
+  background-blend-mode: multiply;
+  color: var(--engraved);
   font-family: inherit;
   font-size: 13px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--fg);
-  background: transparent;
-  border: 1px solid var(--fg);
+  text-shadow: 0 1px 1px rgba(24, 12, 4, 0.65);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 4px 10px rgba(18, 22, 10, 0.45);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.15s ease;
 }
 
 .preloader__btn--primary:hover {
-  background-color: var(--fg);
-  color: var(--bg);
+  color: #ffe6c2;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 190, 0.34),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.4),
+    0 6px 14px rgba(18, 22, 10, 0.5);
+}
+
+.preloader__btn--primary:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 5px rgba(22, 11, 4, 0.6),
+    0 2px 5px rgba(18, 22, 10, 0.4);
 }

@@ -29,8 +29,13 @@ export class Camera {
     // `position` is in world units, `rotation` in radians, both at full
     // deflection (pointer at the edge of the screen). `smoothing` is the
     // exponential follow rate — higher is snappier, lower is floatier.
+    // `vertical` is off on touch: the camera only slides and turns left/right
+    // there. Vertical drags on a phone are scroll-shaped gestures, and letting
+    // them pitch the camera as well as scrub the transition made the view feel
+    // like it was sliding out from under the board.
     this.parallax = {
       enabled: true,
+      vertical: !this.experience.device?.isMobileDevice,
       positionX: 0.2,
       positionY: 0.25,
       rotationX: 0.04,
@@ -57,6 +62,24 @@ export class Camera {
       smoothing: 6,
     };
 
+    // Zoom, driven by the wooden slider in the bottom-right corner — see
+    // ZoomSlider.js. It lives here rather than on the slider so it eases on the
+    // same clock as everything else, survives a reset, and keeps working while
+    // OrbitControls has the camera.
+    //
+    // This is `PerspectiveCamera.zoom`, a projection-matrix scale, not a dolly:
+    // it magnifies without moving the camera, so it can't fight the transition
+    // or the parallax for the transform. 1 is the shot as framed — the slider
+    // only zooms in from there, so no amount of sliding can pull the framing
+    // wide enough to show the edges of the set.
+    this.zoom = {
+      value: 1,
+      target: 1,
+      min: 1,
+      max: 2.5,
+      smoothing: 8,
+    };
+
     // Endpoints, held as objects so the per-frame lerp doesn't rebuild them.
     this.defaultPosition = new THREE.Vector3(...DEFAULT_POSITION);
     this.defaultRotation = new THREE.Euler(...DEFAULT_ROTATION);
@@ -74,7 +97,7 @@ export class Camera {
     this.basePosition = new THREE.Vector3(...DEFAULT_POSITION);
     this.baseRotation = new THREE.Euler(...DEFAULT_ROTATION);
 
-    // Smoothed pointer, chasing mouse.instance.
+    // Smoothed pointer, chasing mouse.drag.
     this.smoothedPointer = new THREE.Vector2(0, 0);
 
     this.init();
@@ -135,6 +158,13 @@ export class Camera {
     window.addEventListener(
       "touchstart",
       (event) => {
+        // Only drags that start on the canvas scrub the camera. Without this,
+        // dragging the zoom knob (or any other on-screen control) would also
+        // haul the camera through the transition under your thumb.
+        if (event.target !== this.experience.canvasElement) {
+          this.lastTouchY = null;
+          return;
+        }
         this.lastTouchY = event.touches[0]?.clientY ?? null;
       },
       { passive: true },
@@ -224,6 +254,42 @@ export class Camera {
     return true;
   }
 
+  /**
+   * Sets where the zoom is heading, clamped to the slider's own range. The
+   * slider calls this on every input; update() does the easing, so a flicked
+   * knob glides in rather than snapping.
+   */
+  setZoom(value) {
+    this.zoom.target = THREE.MathUtils.clamp(
+      value,
+      this.zoom.min,
+      this.zoom.max,
+    );
+  }
+
+  /**
+   * Eases the zoom and pushes it into the projection matrix. Runs before the
+   * orbit early-out in update(), so the slider still works with OrbitControls
+   * on — nothing here touches the transform it owns.
+   */
+  updateZoom() {
+    const z = this.zoom;
+
+    const delta = Math.min(this.experience.time.delta, 100) / 1000;
+    z.value = THREE.MathUtils.lerp(
+      z.value,
+      z.target,
+      1 - Math.exp(-z.smoothing * delta),
+    );
+    if (Math.abs(z.target - z.value) < 0.0001) z.value = z.target;
+
+    // updateProjectionMatrix() is not free, and a parked slider is the common
+    // case — only pay for it on the frames the zoom actually moved.
+    if (this.instance.zoom === z.value) return;
+    this.instance.zoom = z.value;
+    this.instance.updateProjectionMatrix();
+  }
+
   // Called from Experience.init() rather than the constructor: `experience.gui`
   // doesn't exist until renderer.init() has built the Inspector, and Camera is
   // constructed before that.
@@ -248,8 +314,17 @@ export class Camera {
       .add(this.transition, "smoothing", 0.5, 12, 0.1)
       .name("Smoothing");
 
+    // Driving `target` rather than `value`, so the panel and the slider are
+    // moving the same handle and neither can be left behind.
+    const zoom = folder.addFolder("Zoom");
+    zoom
+      .add(this.zoom, "target", this.zoom.min, this.zoom.max, 0.01)
+      .name("Zoom");
+    zoom.add(this.zoom, "smoothing", 0.5, 20, 0.1).name("Smoothing");
+
     const parallax = folder.addFolder("Mouse Parallax");
     parallax.add(this.parallax, "enabled").name("Enabled");
+    parallax.add(this.parallax, "vertical").name("Vertical (off on touch)");
     parallax.add(this.parallax, "positionX", 0, 2, 0.01).name("Move X");
     parallax.add(this.parallax, "positionY", 0, 2, 0.01).name("Move Y");
     parallax.add(this.parallax, "rotationX", 0, 0.3, 0.005).name("Look X");
@@ -298,6 +373,13 @@ export class Camera {
     this.transition.target = 0;
     this.lastTouchY = null;
 
+    // Straight to 1 rather than easing there: this is a hard reset, and the
+    // slider picks the new value up on its next frame.
+    this.zoom.value = 1;
+    this.zoom.target = 1;
+    this.instance.zoom = 1;
+    this.instance.updateProjectionMatrix();
+
     this.basePosition.set(...DEFAULT_POSITION);
     this.baseRotation.set(...DEFAULT_ROTATION);
     this.smoothedPointer.set(0, 0);
@@ -327,7 +409,9 @@ export class Camera {
    * so the two read as one gesture: slide right while turning right.
    */
   updateParallax() {
-    const mouse = this.experience.mouse?.instance;
+    // `drag`, not `instance`: on touch a tap moves the pointer but must not
+    // move the camera. See Mouse.js for why they are tracked separately.
+    const mouse = this.experience.mouse?.drag;
     if (!mouse) return;
 
     const p = this.parallax;
@@ -338,7 +422,10 @@ export class Camera {
     const delta = Math.min(this.experience.time.delta, 100) / 1000;
     this.smoothedPointer.lerp(mouse, 1 - Math.exp(-p.smoothing * delta));
 
-    const { x, y } = this.smoothedPointer;
+    const { x } = this.smoothedPointer;
+    // Both vertical terms come off the same value, so dropping it to 0 removes
+    // the pitch and the vertical slide together, leaving a pure left/right lean.
+    const y = p.vertical ? this.smoothedPointer.y : 0;
 
     this.instance.position.set(
       this.basePosition.x + x * p.positionX,
@@ -394,6 +481,9 @@ export class Camera {
   }
 
   update() {
+    // Projection only — safe to run whoever owns the transform, orbit included.
+    this.updateZoom();
+
     // A transition that drives the camera directly (GSAP, a scroll path, …)
     // should flip `controls.enabled` off so OrbitControls doesn't fight it.
     if (this.controls && this.controls.enabled) {

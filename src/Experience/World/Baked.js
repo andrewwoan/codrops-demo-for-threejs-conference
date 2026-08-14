@@ -1,6 +1,7 @@
 import * as THREE from "three/webgpu";
 import { texture as textureNode, uniform, vec3 } from "three/tsl";
 import { Experience } from "../Experience";
+import { Wind } from "./Wind";
 
 /**
  * Baked.glb — everything from the SimpleBake_Bakes collection, exported as one
@@ -43,6 +44,18 @@ const ALPHA_TEST_BY_PREFIX = {
 // is free performance.
 const DOUBLE_SIDED_PREFIXES = new Set(["first", "second"]);
 
+// Bake groups that get per-island vertex wind — the plants. See World/Wind.js
+// for what that does and how it's tuned; the short version is that every loose
+// connected piece of these meshes (each leaf, petal, stem) is found at load and
+// animated on its own. Only add a group here if it's foliage: the cost is one
+// float per vertex plus a CPU island pass at load, and anything solid will just
+// look like it's wobbling.
+//
+// Wind groups get their own material instance rather than sharing one per
+// texture, because the material samples an island data texture built from one
+// specific geometry.
+const WIND_PREFIXES = new Set(["first", "second"]);
+
 // ---------------------------------------------------------------------------
 // BLACK CUTOFF — discards texels darker than the given value, keyed on
 // brightness rather than alpha. 0 / absent = off.
@@ -67,6 +80,9 @@ export class Baked {
     // Live black-cutoff threshold per material, for the debug slider.
     this.cutoffUniforms = new Map();
 
+    // Per-island vertex wind for the WIND_PREFIXES groups.
+    this.wind = new Wind();
+
     this.init();
   }
 
@@ -87,7 +103,7 @@ export class Baked {
         return;
       }
 
-      const material = this.getMaterial(key, prefix);
+      const material = this.getMaterial(key, prefix, child);
       if (!material) return;
 
       // The GLB carries no materials, so GLTFLoader handed every mesh the same
@@ -105,8 +121,15 @@ export class Baked {
     this.setupGUI();
   }
 
-  getMaterial(key, prefix) {
-    if (this.materials.has(key)) return this.materials.get(key);
+  getMaterial(key, prefix, mesh) {
+    const isWindy = WIND_PREFIXES.has(prefix);
+
+    // Wind materials can't be shared across meshes — each one is bound to the
+    // island data texture of the geometry it was built for — so they're keyed
+    // per mesh instead of per bake group. In practice both wind groups hold a
+    // single mesh, so nothing is actually duplicated.
+    const materialKey = isWindy ? `${key}:${mesh.name}` : key;
+    if (this.materials.has(materialKey)) return this.materials.get(materialKey);
 
     const texture = this.resources.items[key];
     if (!texture) {
@@ -142,7 +165,11 @@ export class Baked {
     const cutoff = BLACK_CUTOFF_BY_PREFIX[prefix];
     if (cutoff) this.applyBlackCutoff(material, texture, key, cutoff);
 
-    this.materials.set(key, material);
+    // Sets material.positionNode, and adds the island index attribute to the
+    // geometry. Must come after the material exists and before it's compiled.
+    if (isWindy) this.wind.apply(mesh, material);
+
+    this.materials.set(materialKey, material);
     return material;
   }
 
@@ -190,23 +217,30 @@ export class Baked {
         });
     }
 
-    for (const [key, material] of this.materials) {
+    for (const material of this.materials.values()) {
       folder
+        // `material.name` rather than the map key: wind materials are keyed per
+        // mesh, so the key carries a mesh name the slider doesn't need.
         .add(material, "alphaTest", 0, 1, 0.01)
-        .name(`${key} alphaTest`)
+        .name(`${material.name} alphaTest`)
         .onChange(() => {
           // alphaTest changes the compiled shader, not just a uniform.
           material.needsUpdate = true;
         });
     }
+
+    this.wind.setupGUI(this.experience.gui);
   }
 
   resize() {}
 
-  update() {}
+  update() {
+    this.wind.update(this.experience.time.elapsed);
+  }
 
   destroy() {
     for (const material of this.materials.values()) material.dispose();
     this.materials.clear();
+    this.wind.destroy();
   }
 }
