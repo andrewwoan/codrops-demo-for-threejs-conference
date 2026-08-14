@@ -49,10 +49,11 @@ const RELEASE_MS = 45;
 const _v = new THREE.Vector3();
 
 export class Plunger {
-  constructor({ plane, mesh, controls, gui }) {
+  constructor({ plane, mesh, controls, gui, audio = null }) {
     this.plane = plane;
     this.frame = plane.frame;
     this.mesh = mesh;
+    this.audio = audio;
 
     this.settings = {
       travel: TRAVEL,
@@ -154,6 +155,9 @@ export class Plunger {
       this.firing = false;
       this.charge = Math.min(1, this.charge + deltaMs / chargeMs);
     } else if (this.charge > 0) {
+      // Once, on the transition into the stroke — `charge` is still at full
+      // draw here, which is what sets how big the thunk sounds.
+      if (!this.firing) this.audio?.plunger(this.charge);
       this.firing = true;
       this.charge = Math.max(0, this.charge - deltaMs / releaseMs);
       if (this.charge === 0) this.firing = false;

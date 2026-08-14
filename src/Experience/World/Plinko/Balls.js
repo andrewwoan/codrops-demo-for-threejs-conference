@@ -1,6 +1,7 @@
 import * as THREE from "three/webgpu";
 import { SCALE, ZONE } from "./Physics.js";
 import { createBallMaterial } from "./BallMaterial.js";
+import { BallShadows } from "./BallShadows.js";
 
 /**
  * The ball pool, the plinko → table handoff, and the drain.
@@ -45,22 +46,6 @@ const OUT_OF_BOUNDS_MARGIN = 4;
 
 // Ball-search, same idea as a real machine: a ball that has barely moved for
 // this long gets nudged downhill rather than ending the game quietly.
-// Shorter than a real ball-search, because the fan below needs several tries to
-// work round a corner and 1.5s each made a wedged ball look abandoned.
-const STUCK_MS = 700;
-const STUCK_SPEED = 0.35;
-// Target velocity change per nudge, in FRAME units/s.
-//
-// Not an impulse: applyImpulse divides by mass and works in the solver's scaled
-// units, so a raw 1.2 here moved the ball by 0.049 units/s — invisible. The
-// impulse is computed from the body's real mass at the call site instead.
-const NUDGE_SPEED = 0.9;
-// Successive nudges fan around by the golden angle so they never repeat a
-// direction. A ball wedged against the arch foot had downhill blocked, and a
-// nudge that always points downhill just pressed it harder into the trap.
-const GOLDEN_ANGLE = 2.399963;
-const MAX_NUDGE_MULTIPLIER = 3;
-
 // --- Arch rail ------------------------------------------------------------
 // A ball reaching either mouth of the arch, moving into it fast enough, leaves
 // the 2D solver and becomes a bead on the rail. See ArchRail.js.
@@ -122,11 +107,13 @@ export class Balls {
     bounds,
     resources = null,
     shading = null,
+    shadows = null,
     rail = null,
   }) {
     this.scene = scene;
     this.resources = resources;
     this.shading = shading;
+    this.shadowSettings = shadows;
     this.rail = rail;
 
     // Live, because the useful range here is narrow: a ball free-rolling the
@@ -154,6 +141,11 @@ export class Balls {
     this.pool = [];
     // Spawn order, oldest first — the recycle queue.
     this.order = [];
+    // Collider handle -> ball, so a contact event can be traced back to which
+    // ball it was. Rebuilt as bodies come and go.
+    this.byCollider = new Map();
+    // Summed speed of everything rolling, read by the audio bed each frame.
+    this.rollingActivity = 0;
 
     this.group = new THREE.Group();
     this.group.name = "PlinkoBalls";
@@ -197,6 +189,18 @@ export class Balls {
     this.instanced.frustumCulled = false;
     this.group.add(this.instanced);
 
+    // Faked contact shadows, sharing this pool's indices. Not a shadow map —
+    // see BallShadows.js for why a baked scene can't use one.
+    this.shadows = new BallShadows({
+      parent: this.group,
+      count: MAX_BALLS,
+      radius: this.radius,
+      // So a shadow riding the arch can be sized to the arch rather than
+      // hanging off its sides.
+      railWidth: this.rail?.width ?? 0,
+      settings: this.shadowSettings ?? {},
+    });
+
     for (let i = 0; i < MAX_BALLS; i++) {
       this.instanced.setMatrixAt(i, _hidden);
 
@@ -206,12 +210,10 @@ export class Balls {
         handle: null, // { body, collider }
         zone: ZONE.TABLE,
         spawnedAt: -Infinity,
-        slowSince: null,
         // { s, v } while riding the arch, null otherwise.
         rail: null,
         railRoll: 0,
         railCooldown: 0,
-        nudgeCount: 0,
         alive: false,
       });
     }
@@ -236,13 +238,12 @@ export class Balls {
     ball.plane = this.board;
     ball.zone = ZONE.TABLE;
     ball.handle = this.board.createBall(x, y, this.radius, ball.zone);
+    this.byCollider.set(ball.handle.collider.handle, ball);
     ball.alive = true;
     ball.spawnedAt = now;
-    ball.slowSince = null;
     ball.rail = null;
     ball.railRoll = 0;
     ball.railCooldown = 0;
-    ball.nudgeCount = 0;
 
     this.order.push(ball.index);
     this.writeInstance(ball, now);
@@ -251,6 +252,7 @@ export class Balls {
   }
 
   despawn(ball) {
+    if (ball.handle) this.byCollider.delete(ball.handle.collider.handle);
     if (ball.handle && ball.plane) ball.plane.removeBall(ball.handle);
     ball.handle = null;
     ball.plane = null;
@@ -258,6 +260,7 @@ export class Balls {
     ball.alive = false;
 
     this.instanced.setMatrixAt(ball.index, _hidden);
+    this.shadows?.hide(ball.index);
     this.dirty = true;
 
     const at = this.order.indexOf(ball.index);
@@ -293,6 +296,7 @@ export class Balls {
     // Always leave the hinge heading downhill.
     if (vy > -MIN_ENTRY_SPEED) vy = -MIN_ENTRY_SPEED;
 
+    this.byCollider.delete(ball.handle.collider.handle);
     this.board.removeBall(ball.handle);
 
     ball.plane = this.table;
@@ -303,19 +307,21 @@ export class Balls {
       this.radius,
       ball.zone,
     );
+    this.byCollider.set(ball.handle.collider.handle, ball);
     ball.handle.body.setLinvel({ x: vx * SCALE, y: vy * SCALE }, true);
-    ball.slowSince = null;
   }
 
   /** Position every live mesh, and run the zone transitions. */
   update(now, deltaMs = 16) {
     const dt = Math.min(deltaMs, 100) / 1000;
+    this.rollingActivity = 0;
 
     for (const ball of this.pool) {
       if (!ball.alive) continue;
 
       // Riding the arch: no rigid body at all, just a scalar along the curve.
       if (ball.rail) {
+        this.rollingActivity += Math.abs(ball.rail.v);
         this.updateRail(ball, dt, now);
         continue;
       }
@@ -324,6 +330,10 @@ export class Balls {
       const translation = body.translation();
       const y = translation.y / SCALE;
 
+      const velocity = body.linvel();
+      this.rollingActivity +=
+        Math.hypot(velocity.x, velocity.y) / SCALE;
+
       if (ball.plane === this.board && y < this.bounds.board.exitY) {
         this.transfer(ball);
       } else if (ball.plane === this.table) {
@@ -331,7 +341,6 @@ export class Balls {
           this.despawn(ball);
           continue;
         }
-        this.checkStuck(ball, now);
         if (y < this.bounds.table.drainY) {
           // Down the drain. Freeing it here is what lets the next click reuse
           // this slot instead of evicting a ball that is still in play.
@@ -353,6 +362,13 @@ export class Balls {
       this.instanced.instanceMatrix.needsUpdate = true;
       this.dirty = false;
     }
+
+    this.shadows?.flush();
+  }
+
+  /** Which ball owns this collider handle, if any. */
+  ballByCollider(handle) {
+    return this.byCollider.get(handle) ?? null;
   }
 
   /** Outside its own surface by more than the margin — it is not in play. */
@@ -402,6 +418,7 @@ export class Balls {
 
       const capped = Math.min(entrySpeed, this.railSettings.maxEntrySpeed);
 
+      this.byCollider.delete(ball.handle.collider.handle);
       this.table.removeBall(ball.handle);
       ball.handle = null;
       ball.plane = null;
@@ -480,17 +497,21 @@ export class Balls {
       this.radius,
       ball.zone,
     );
+    this.byCollider.set(ball.handle.collider.handle, ball);
     ball.handle.body.setLinvel(
       { x: dirX * speed * SCALE, y: dirY * speed * SCALE },
       true,
     );
-    ball.slowSince = null;
-    ball.nudgeCount = 0;
 
     this.writeInstance(ball, now);
   }
 
-  /** Instance matrix for a ball on the rail, lifted to the ridge. */
+  /**
+   * Instance matrix for a ball on the rail, lifted to the ridge.
+   *
+   * The shadow rides the arch with it — the ball is in contact with the arch,
+   * so that is the surface its shadow belongs on. See BallShadows.writeRail().
+   */
   writeRailInstance(ball, now, sample) {
     const frame = this.table.frame;
     frame.to3D(sample.x, sample.y, sample.h + this.radius, _position);
@@ -510,52 +531,10 @@ export class Balls {
       _quaternion.setFromAxisAngle(_axis.normalize(), ball.railRoll);
     }
 
-    this.setInstance(ball, now, _position, _quaternion);
+    const grow = this.setInstance(ball, now, _position, _quaternion);
+    this.shadows?.writeRail(ball.index, frame, sample, grow);
   }
 
-  /**
-   * Ball-search. Real machines do this too: anything that stops moving for long
-   * enough gets shoved rather than silently ending the game. Nudging downhill
-   * along the frame's -Y also means the fix always points somewhere useful.
-   */
-  checkStuck(ball, now) {
-    const velocity = ball.handle.body.linvel();
-    const speed = Math.hypot(velocity.x, velocity.y) / SCALE;
-
-    if (speed > STUCK_SPEED) {
-      ball.slowSince = null;
-      ball.nudgeCount = 0;
-      return;
-    }
-
-    if (ball.slowSince === null || ball.slowSince === undefined) {
-      ball.slowSince = now;
-      return;
-    }
-
-    if (now - ball.slowSince < STUCK_MS) return;
-
-    // Downhill on the first try, then fanning outward — and a little harder
-    // each time, so a genuinely tight wedge still comes loose.
-    const attempt = ball.nudgeCount ?? 0;
-    const angle = attempt * GOLDEN_ANGLE;
-    const deltaV =
-      NUDGE_SPEED * Math.min(1 + attempt * 0.35, MAX_NUDGE_MULTIPLIER);
-
-    // impulse = mass * dv, and the solver works in scaled units.
-    const strength = (ball.handle.body.mass() || 1) * deltaV * SCALE;
-
-    ball.handle.body.applyImpulse(
-      {
-        x: Math.sin(angle) * strength,
-        y: -Math.cos(angle) * strength,
-      },
-      true,
-    );
-
-    ball.nudgeCount = attempt + 1;
-    ball.slowSince = now;
-  }
 
   /** Compose this ball's instance matrix from its body pose. */
   writeInstance(ball, now) {
@@ -563,17 +542,16 @@ export class Balls {
     const translation = body.translation();
     const frame = ball.plane.frame;
 
-    frame.to3D(
-      translation.x / SCALE,
-      translation.y / SCALE,
-      this.radius,
-      _position,
-    );
+    const x = translation.x / SCALE;
+    const y = translation.y / SCALE;
+
+    frame.to3D(x, y, this.radius, _position);
 
     // Roll the ball about the plane normal so it visibly spins as it travels.
     _quaternion.setFromAxisAngle(frame.normal, body.rotation());
 
-    this.setInstance(ball, now, _position, _quaternion);
+    const grow = this.setInstance(ball, now, _position, _quaternion);
+    this.shadows?.write(ball.index, frame, x, y, grow);
   }
 
   /**
@@ -582,6 +560,9 @@ export class Balls {
    * Shared by the body path and the rail path — a ball riding the arch has no
    * rigid body to read a pose from, but it still needs the same growth curve
    * and the same matrix slot.
+   *
+   * Returns the growth factor, so the shadow under the ball can scale and fade
+   * in on the same curve rather than popping in at full size.
    */
   setInstance(ball, now, position, quaternion) {
     const age = now - ball.spawnedAt;
@@ -599,6 +580,8 @@ export class Balls {
       _matrix.compose(position, quaternion, _scale),
     );
     this.dirty = true;
+
+    return grow;
   }
 
   /** Clear the board — every ball in play is removed. */
@@ -610,6 +593,7 @@ export class Balls {
 
     this.instanced.instanceMatrix.needsUpdate = true;
     this.dirty = false;
+    this.shadows?.flush();
   }
 
   get liveCount() {
@@ -625,11 +609,13 @@ export class Balls {
     for (const ball of this.pool) {
       if (ball.alive) this.despawn(ball);
     }
+    this.shadows?.destroy();
     this.instanced.geometry.dispose();
     this.instanced.material.dispose();
     this.instanced.dispose();
     this.scene.remove(this.group);
     this.pool.length = 0;
     this.order.length = 0;
+    this.byCollider.clear();
   }
 }

@@ -29,8 +29,6 @@
     <title>Three.js Experience</title>
   </head>
   <body>
-    <!-- Preloader temporarily disabled — re-enable with the import and
-         `new Preloader()` in src/Experience/Experience.js.
     <div class="preloader">
       <div class="preloader__inner">
         <div class="preloader__loading">
@@ -45,18 +43,28 @@
           <p class="preloader__description">
             Add your intro copy here.
           </p>
+          <!-- Two doors into the same board — the only difference is whether
+               it makes any sound. Both count as the gesture browsers require
+               before audio may play, which is why the choice lives here. -->
           <div class="preloader__buttons">
             <button
-              id="enter-btn"
+              id="enter-audio-btn"
+              type="button"
               class="preloader__btn preloader__btn--primary"
             >
-              Enter
+              Enter with Audio
+            </button>
+            <button
+              id="enter-silent-btn"
+              type="button"
+              class="preloader__btn preloader__btn--quiet"
+            >
+              Enter without Audio
             </button>
           </div>
         </div>
       </div>
     </div>
-    -->
 
     <div id="experience-wrapper">
       <canvas id="experience-canvas"></canvas>

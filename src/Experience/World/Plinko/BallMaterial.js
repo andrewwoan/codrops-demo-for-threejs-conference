@@ -18,8 +18,8 @@ import {
  * Everything else here is `MeshBasicNodeMaterial` with the lighting painted
  * into the texture, which is right for geometry that never moves. The balls do
  * move, so baked lighting is exactly wrong for them: a ball rolling across the
- * table would carry a highlight that never changes. Making them the only
- * `MeshStandardNodeMaterial` means the ambient and directional lights already
+ * table would carry a shadow that never changes. Making them the only
+ * lit material means the ambient and directional lights already
  * sitting in Environment.js finally do something, and only to the balls.
  *
  * ---------------------------------------------------------------------------
@@ -76,11 +76,36 @@ export const BALL_DEFAULTS = {
   shadeStart: 0,
   shadeEnd: -2,
 
-  // Shared by both paths.
-  roughness: 0.55,
+  // ---------------------------------------------------------------------
+  // SURFACE. Dry, old, unfinished timber — no varnish, no wax, nothing that
+  // was ever polished. That is two separate things, and roughness alone only
+  // buys the first:
+  //
+  //   - roughness 1 spreads the highlight until it has no shape, but a rough
+  //     dielectric still has a specular lobe, and it still flares at grazing
+  //     angles. On a sphere that lands as a bright rim all the way round the
+  //     silhouette, which is exactly the "finished bead" read.
+  //   - specularIntensity 0 removes the lobe outright, leaving pure diffuse.
+  //     No glint from the directional light at any angle.
+  //
+  // The second is why the material is Physical rather than Standard: Standard
+  // has no way to switch the highlight off. Everything else Physical adds
+  // (clearcoat, sheen, transmission, iridescence) stays at its zero default
+  // and compiles out.
+  // ---------------------------------------------------------------------
+  roughness: 1.0,
   metalness: 0.0,
+  specularIntensity: 0.0,
+  // The glossiest the roughness MAP is allowed to make the ball. The wood set
+  // is photographed off finished timber, so its darker regions are gloss and
+  // would put shine back on in patches; the map is remapped into
+  // [roughnessFloor, 1] to keep its variation and drop its polish.
+  roughnessFloor: 0.85,
   textureScale: 3.0,
-  envMapIntensity: 1.0,
+  // Only reachable if a ballEnv cubemap is switched on in staticAssets.js.
+  // Kept low for the same reason as the above — a mirrored environment is the
+  // one thing that would undo all of it.
+  envMapIntensity: 0.15,
   normalScale: 0.6,
 };
 
@@ -164,6 +189,7 @@ export function createBallMaterial({ resources, settings = {} } = {}) {
     grainScale: uniform(config.grainScale),
     grainWidth: uniform(config.grainWidth),
     textureScale: uniform(config.textureScale),
+    roughnessFloor: uniform(config.roughnessFloor),
     tint: uniform(new THREE.Color(config.tint)),
     shadeOrigin: uniform(
       (config.shadeOrigin ?? new THREE.Vector3()).clone(),
@@ -184,9 +210,10 @@ export function createBallMaterial({ resources, settings = {} } = {}) {
   const normalMap = items.woodNormal ?? null;
   const envMap = items.ballEnv ?? null;
 
-  const material = new THREE.MeshStandardNodeMaterial({
+  const material = new THREE.MeshPhysicalNodeMaterial({
     roughness: config.roughness,
     metalness: config.metalness,
+    specularIntensity: config.specularIntensity,
   });
   material.name = "plinko_ball";
 
@@ -204,12 +231,15 @@ export function createBallMaterial({ resources, settings = {} } = {}) {
       ).mul(shadeGradient(uniforms));
     }
 
+    // Note this OVERRIDES `material.roughness` outright — with a map present,
+    // `roughnessFloor` is the live control, not the material property.
     if (roughnessMap) {
       prepare(roughnessMap, THREE.NoColorSpace);
-      material.roughnessNode = triplanar(
-        roughnessMap,
-        uniforms.textureScale,
-      ).r;
+      material.roughnessNode = mix(
+        uniforms.roughnessFloor,
+        float(1.0),
+        triplanar(roughnessMap, uniforms.textureScale).r,
+      );
     }
 
     // Normal maps are tangent-space and triplanar blending them properly needs

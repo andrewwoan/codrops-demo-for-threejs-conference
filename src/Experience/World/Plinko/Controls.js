@@ -115,6 +115,61 @@ export class Controls {
   }
 
   /**
+   * A two-state carved switch — the sound button. The same slab as addAction(),
+   * but it reports as well as acts, so its face is a function of the state.
+   *
+   * The face is an icon, which is the whole reason `description` is not
+   * optional: a glyph has no accessible name of its own, so the aria-label is
+   * the only name this button has.
+   *
+   * Returns a `set` alongside the element because this button is not the only
+   * thing that can change what it shows: the preloader chooses the initial
+   * state and the debug panel can flip it later. `set` never calls back into
+   * `onChange` — it exists to follow a change made elsewhere, and firing on it
+   * would make Experience.setAudioMuted() re-enter itself.
+   *
+   * @param icon         (value) => SVG markup for the face. Authored constants
+   *                     only — this is assigned as HTML.
+   * @param description  (value) => accessible name for the ACTION, not the
+   *                     state: a screen reader should hear what pressing it
+   *                     does, while the icon shows where things stand.
+   */
+  addToggle({ icon, description, value = false, onChange }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "board-btn board-btn--toggle board-btn--icon";
+
+    let state = value;
+
+    const render = () => {
+      button.innerHTML = icon(state);
+      button.dataset.toggled = String(state);
+      button.setAttribute("aria-pressed", String(state));
+      button.setAttribute("aria-label", description(state));
+    };
+
+    button.addEventListener("click", (event) => {
+      // As with addAction: a press here must not also drop a ball.
+      event.stopPropagation();
+      state = !state;
+      render();
+      onChange?.(state);
+    });
+
+    render();
+    this.ensureUtility().appendChild(button);
+
+    return {
+      element: button,
+      set(next) {
+        if (next === state) return;
+        state = next;
+        render();
+      },
+    };
+  }
+
+  /**
    * A read-only display sharing the utility row with the action buttons — a
    * ball count, a score, anything that reports rather than does.
    *

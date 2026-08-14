@@ -11,9 +11,10 @@ import {
   dedupeContours,
   planeIntersectionY,
 } from "./Extract.js";
-import { PhysicsPlane, ZONE } from "./Physics.js";
+import { PhysicsPlane, ZONE, SCALE } from "./Physics.js";
 import { Balls } from "./Balls.js";
 import { ArchRail } from "./ArchRail.js";
+import { Audio } from "./Audio.js";
 import { Flippers } from "./Flippers.js";
 import { Plunger } from "./Plunger.js";
 import { Controls } from "./Controls.js";
@@ -62,6 +63,29 @@ const DEBUG_COLORS = {
   boardPolyline: 0xffd400,
   boardCircle: 0x4fa8ff,
 };
+
+// The sound switch's two faces. Drawn in `currentColor` so they take the same
+// engraved lettering colour as the buttons beside them, including the dimmed
+// state — one less place for the palette to be restated.
+//
+// The cone is filled and the waves are stroked, which is what keeps the glyph
+// readable at 18px: an all-stroke speaker turns to mush at this size.
+const SOUND_ICON = (paths) => `
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+       focusable="false" fill="none" stroke="currentColor" stroke-width="1.7"
+       stroke-linecap="round">
+    <path d="M4 9.3h3.4L11.6 5.8v12.4L7.4 14.7H4z" fill="currentColor"
+          stroke-linejoin="round" />
+    ${paths}
+  </svg>`;
+
+const SOUND_ON_ICON = SOUND_ICON(`
+    <path d="M15.1 9.4a3.7 3.7 0 0 1 0 5.2" />
+    <path d="M17.8 6.9a7.4 7.4 0 0 1 0 10.2" />`);
+
+const SOUND_OFF_ICON = SOUND_ICON(`
+    <path d="M15.4 9.6l5 4.8" />
+    <path d="M20.4 9.6l-5 4.8" />`);
 
 export class Plinko {
   constructor() {
@@ -277,6 +301,10 @@ export class Plinko {
       },
     });
 
+    // Before the controls: the flippers and plunger hold a reference to it
+    // so they can sound their own mechanism, independent of ball contact.
+    this.audio = new Audio({ muted: this.experience.audioMuted });
+
     // Always constructed: the thumb bar inside it is touch-only, but the
     // utility buttons (reset) show everywhere.
     this.controls = new Controls({
@@ -289,6 +317,7 @@ export class Plinko {
         meshes: this.hitterMeshes,
         gui: this.experience.gui,
         controls: this.controls,
+        audio: this.audio,
       });
     } else {
       console.warn("[Plinko] no hitter meshes found — flippers disabled.");
@@ -300,6 +329,7 @@ export class Plinko {
         mesh: this.plungerMesh,
         controls: this.controls,
         gui: this.experience.gui,
+        audio: this.audio,
       });
     } else {
       console.warn("[Plinko] no `fourth_reset_hitter` mesh — plunger disabled.");
@@ -314,6 +344,16 @@ export class Plinko {
     this.controls.addAction({
       label: "Reset Board",
       onClick: () => this.balls.reset(),
+    });
+
+    // Last in the row, so it sits hard in the corner. It starts wherever the
+    // preloader left the flag — someone who entered without audio should not
+    // have to press this to agree with the choice they just made.
+    this.soundToggle = this.controls.addToggle({
+      value: this.experience.audioMuted,
+      icon: (muted) => (muted ? SOUND_OFF_ICON : SOUND_ON_ICON),
+      description: (muted) => (muted ? "Turn sound on" : "Turn sound off"),
+      onChange: (muted) => this.experience.setAudioMuted(muted),
     });
 
     this.bindDropZone();
@@ -356,6 +396,7 @@ export class Plinko {
       if (y < bounds.minY || y > bounds.maxY) return;
       if (x < bounds.minX || x > bounds.maxX) return;
 
+      this.audio?.drop();
       this.balls.spawn(
         THREE.MathUtils.clamp(
           x,
@@ -468,7 +509,90 @@ export class Plinko {
       .name("reset board");
 
     this.setupBallGUI();
+    this.setupShadowGUI();
     this.setupRailGUI();
+    this.setupAudioGUI();
+  }
+
+  /** The faked contact shadows under the balls. See BallShadows.js. */
+  setupShadowGUI() {
+    const shadows = this.balls?.shadows;
+    if (!shadows) return;
+
+    const folder = this.experience.gui.addFolder("Plinko Ball Shadows");
+    const { uniforms, settings } = shadows;
+
+    folder.add(shadows.mesh, "visible").name("enabled");
+    folder
+      .add({ strength: uniforms.strength.value }, "strength", 0, 1, 0.01)
+      .name("darkness")
+      .onChange((v) => {
+        uniforms.strength.value = v;
+      });
+    folder
+      .addColor({ color: `#${uniforms.color.value.getHexString()}` }, "color")
+      .name("colour")
+      .onChange((v) => uniforms.color.value.set(v));
+    folder
+      .add({ core: uniforms.core.value }, "core", 0, 0.9, 0.01)
+      .name("hard core")
+      .onChange((v) => {
+        uniforms.core.value = v;
+      });
+    folder
+      .add({ falloff: uniforms.falloff.value }, "falloff", 0.2, 4, 0.05)
+      .name("edge softness")
+      .onChange((v) => {
+        uniforms.falloff.value = v;
+      });
+
+    // These land in the instance matrix on the next write rather than in a
+    // uniform, so they take effect as soon as a ball moves — no rebuild.
+    folder.add(settings, "spread", 0.6, 4, 0.05).name("size (radii)");
+    folder.add(settings, "offsetX", -2, 2, 0.05).name("offset right");
+    folder.add(settings, "offsetY", -2, 2, 0.05).name("offset uphill");
+    folder.add(settings, "lift", 0, 0.3, 0.005).name("surface clearance");
+
+    // On the arch. `rail fit` only bites while it is the smaller of the two
+    // sizes — see BallShadows.writeRail().
+    folder.add(settings, "railLift", 0, 0.6, 0.01).name("arch clearance");
+    folder.add(settings, "railFit", 0.2, 1.5, 0.05).name("arch size (of width)");
+    folder
+      .add(
+        {
+          info: () =>
+            console.log(
+              `[Plinko] arch running width ${(shadows.railWidth || 0).toFixed(4)} ` +
+                `(${((shadows.railWidth || 0) / shadows.radius).toFixed(2)} ball radii); ` +
+                `shadow on rail ${Math.min(
+                  shadows.radius * 2 * settings.spread,
+                  shadows.railWidth > 0
+                    ? shadows.railWidth * settings.railFit
+                    : Infinity,
+                ).toFixed(4)}`,
+            ),
+        },
+        "info",
+      )
+      .name("Log Arch Fit");
+  }
+
+  setupAudioGUI() {
+    if (!this.audio) return;
+    const folder = this.experience.gui.addFolder("Plinko Audio");
+    folder
+      .add({ v: this.audio.settings.volume }, "v", 0, 1, 0.01)
+      .name("master volume")
+      .onChange((v) => this.audio.setVolume(v));
+    folder
+      .add(this.audio.settings, "rollVolume", 0, 1, 0.01)
+      .name("rolling bed");
+    // Through Experience, not straight at Audio: the corner nameplate is
+    // showing this same state and has to follow it.
+    folder
+      .add({ m: this.audio.settings.muted }, "m")
+      .name("mute")
+      .onChange((m) => this.experience.setAudioMuted(m));
   }
 
   /** Arch rail tuning. See ArchRail.js for what the rail actually is. */
@@ -514,6 +638,13 @@ export class Plinko {
     if (!material) return;
 
     const folder = this.experience.gui.addFolder("Plinko Balls");
+    // 0 is bone-dry unfinished wood — no specular lobe at all. Anything much
+    // above 0.15 starts reading as varnish. See BallMaterial.js.
+    if ("specularIntensity" in material) {
+      folder.add(material, "specularIntensity", 0, 1, 0.01).name("shine");
+    }
+    // Inert once a roughness map is loaded — "roughness floor" below is the
+    // live one then.
     folder.add(material, "roughness", 0, 1, 0.01).name("roughness");
     folder.add(material, "metalness", 0, 1, 0.01).name("metalness");
 
@@ -535,6 +666,16 @@ export class Plinko {
 
     const uniforms = this.balls.materialUniforms;
     if (!uniforms) return;
+
+    // How glossy the roughness map is allowed to make the ball at its darkest.
+    if (material.roughnessNode) {
+      folder
+        .add({ floor: uniforms.roughnessFloor.value }, "floor", 0, 1, 0.01)
+        .name("roughness floor")
+        .onChange((v) => {
+          uniforms.roughnessFloor.value = v;
+        });
+    }
 
     // Matching the baked shadow at the bottom of the playfield.
     const shade = folder.addFolder("Shadow gradient");
@@ -604,6 +745,7 @@ export class Plinko {
 
   dropRandom() {
     const bounds = this.boardSurface.bounds;
+    this.audio?.drop();
     this.balls?.spawn(
       THREE.MathUtils.lerp(
         bounds.minX + this.radius,
@@ -638,6 +780,26 @@ export class Plinko {
     this.ballCounter.dataset.full = String(live >= cap);
   }
 
+  /**
+   * Turn this frame's contacts into impacts. Volume comes from the ball's own
+   * speed rather than a contact force, which is cheaper and, for a board where
+   * everything is wood on wood, indistinguishable.
+   */
+  playContactSounds(plane) {
+    plane.drainCollisions((handleA, handleB, kindA, kindB) => {
+      const ballHandle = kindA === "ball" ? handleA : handleB;
+      const otherKind = kindA === "ball" ? kindB : kindA;
+      if (kindA !== "ball" && kindB !== "ball") return;
+
+      const ball = this.balls.ballByCollider(ballHandle);
+      if (!ball?.handle) return;
+
+      const velocity = ball.handle.body.linvel();
+      const speed = Math.hypot(velocity.x, velocity.y) / SCALE;
+      this.audio.impact(otherKind ?? "wall", speed);
+    });
+  }
+
   resize() {}
 
   update() {
@@ -650,6 +812,15 @@ export class Plinko {
     this.boardPlane.step(delta);
     this.tablePlane.step(delta);
     this.balls.update(this.experience.time.elapsed, delta);
+
+    // Sound last: the drain has to happen after both worlds have stepped, and
+    // reading a ball's speed is only meaningful once its pose is final.
+    if (this.audio) {
+      this.playContactSounds(this.boardPlane);
+      this.playContactSounds(this.tablePlane);
+      this.audio.updateRolling(this.balls.rollingActivity, delta);
+      this.audio.endFrame();
+    }
     this.syncBallCounter();
   }
 
@@ -657,6 +828,7 @@ export class Plinko {
     this.experience.canvasElement.removeEventListener("click", this.onDrop);
     this.flippers?.destroy();
     this.plunger?.destroy();
+    this.audio?.destroy();
     this.controls?.destroy();
     this.balls?.destroy();
     this.boardPlane?.destroy();

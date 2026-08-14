@@ -208,6 +208,45 @@ body {
     0 4px 12px rgba(20, 12, 5, 0.45);
 }
 
+/* A square face rather than a nameplate — the padding and letter-spacing above
+   are cut for a word, and leave a glyph swimming in the middle of a slab. Sized
+   to stand as tall as the lettered buttons beside it so the row keeps one
+   baseline. */
+.board-btn--icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+/* The engraved lettering trick doesn't reach an SVG — text-shadow only paints
+   glyphs — so the same lift is done with a drop-shadow on the mark itself. */
+.board-btn--icon svg {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(24, 12, 4, 0.65));
+}
+
+/* The sound switch. Brass when sound is on; switched off, the mark goes cold
+   and the slab sits deeper in its socket, so the state reads from across the
+   room — the crossed-out cone and the colour say the same thing twice, which is
+   what a control with no label owes you. */
+.board-btn--toggle[data-toggled="false"] {
+  color: var(--amber);
+}
+
+.board-btn--toggle[data-toggled="true"] {
+  color: rgba(232, 199, 156, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.12),
+    inset 0 2px 6px rgba(22, 11, 4, 0.55),
+    0 2px 5px rgba(20, 12, 5, 0.35);
+}
+
+.board-btn--toggle[data-toggled="true"]:hover {
+  color: rgba(240, 220, 192, 0.75);
+}
+
 /* The ball counter — the same slab as the button beside it, but seated a
    little deeper and lit a little less, so the row reads as one control and one
    plaque rather than two buttons. */
@@ -516,11 +555,7 @@ body {
 .preloader__progress-bar {
   height: 100%;
   width: 0%;
-  background-image: linear-gradient(
-    to right,
-    var(--wood-warm),
-    var(--amber)
-  );
+  background-color: var(--amber);
   transition: width 0.3s ease;
 }
 
@@ -598,9 +633,47 @@ body {
     0 6px 14px rgba(18, 22, 10, 0.5);
 }
 
-.preloader__btn--primary:active {
+/* The quiet door. Same piece of oak, left unpolished — no lit top edge, paler
+   lettering — so the pair reads as one offered and one available rather than
+   two equal choices. It is still a full-sized button: entering without sound is
+   a legitimate way in, not an apology. */
+.preloader__btn--quiet {
+  border-color: rgba(28, 16, 8, 0.42);
+  background-image: linear-gradient(
+      165deg,
+      rgba(112, 74, 41, 0.6),
+      rgba(58, 36, 17, 0.72)
+    ),
+    var(--grain);
+  color: rgba(240, 220, 192, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.1),
+    inset 0 -2px 5px rgba(22, 11, 4, 0.35),
+    0 3px 8px rgba(18, 22, 10, 0.3);
+}
+
+.preloader__btn--quiet:hover {
+  color: #f5e6ce;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 190, 0.2),
+    inset 0 -2px 5px rgba(22, 11, 4, 0.35),
+    0 5px 12px rgba(18, 22, 10, 0.38);
+}
+
+.preloader__btn:active {
   transform: translateY(1px);
   box-shadow:
     inset 0 2px 5px rgba(22, 11, 4, 0.6),
     0 2px 5px rgba(18, 22, 10, 0.4);
+}
+
+/* The buttons are the last thing on the sheet and the only thing to press —
+   focus has to be obvious without breaking the burnt-in look. */
+.preloader__btn:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 226, 184, 0.6),
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 4px 10px rgba(18, 22, 10, 0.45);
 }

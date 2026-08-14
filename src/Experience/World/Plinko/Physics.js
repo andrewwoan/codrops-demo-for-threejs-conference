@@ -84,6 +84,15 @@ export class PhysicsPlane {
 
     this.accumulator = 0;
     this.bodies = new Set();
+
+    // autoDrain FALSE on purpose: the queue is cleared at the start of each
+    // step when auto-draining, so with several substeps per frame only the last
+    // substep's contacts would survive. Accumulating and draining once per
+    // frame keeps every hit.
+    this.events = new RAPIER.EventQueue(false);
+
+    // collider handle -> what it is, for the audio layer.
+    this.kinds = new Map();
   }
 
   /**
@@ -106,9 +115,10 @@ export class PhysicsPlane {
       const desc = RAPIER.ColliderDesc.polyline(vertices)
         .setRestitution(MATERIALS.wall.restitution)
         .setFriction(MATERIALS.wall.friction)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
         .setCollisionGroups(staticGroups(zone));
 
-      this.world.createCollider(desc, body);
+      this.kinds.set(this.world.createCollider(desc, body).handle, "wall");
     }
 
     for (const circle of circles) {
@@ -116,9 +126,10 @@ export class PhysicsPlane {
         .setTranslation(circle.x * SCALE, circle.y * SCALE)
         .setRestitution(MATERIALS.peg.restitution)
         .setFriction(MATERIALS.peg.friction)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
         .setCollisionGroups(staticGroups(zone));
 
-      this.world.createCollider(desc, body);
+      this.kinds.set(this.world.createCollider(desc, body).handle, "peg");
     }
 
     return body;
@@ -149,10 +160,12 @@ export class PhysicsPlane {
         // Min, not the default Average: otherwise the ball inherits half of
         // whatever it hits and one springy surface makes everything bouncy.
         .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
         .setCollisionGroups(ballGroups(zone)),
       body,
     );
 
+    this.kinds.set(collider.handle, "ball");
     this.bodies.add(body);
     return { body, collider };
   }
@@ -166,10 +179,22 @@ export class PhysicsPlane {
     collider.setCollisionGroups(ballGroups(zone));
   }
 
-  removeBall({ body }) {
+  removeBall({ body, collider }) {
     if (!this.bodies.has(body)) return;
     this.bodies.delete(body);
+    if (collider) this.kinds.delete(collider.handle);
     this.world.removeRigidBody(body);
+  }
+
+  /**
+   * Hand every contact that STARTED this frame to `callback`, as
+   * (handleA, handleB, kindA, kindB). Draining empties the queue.
+   */
+  drainCollisions(callback) {
+    this.events.drainCollisionEvents((a, b, started) => {
+      if (!started) return;
+      callback(a, b, this.kinds.get(a), this.kinds.get(b));
+    });
   }
 
   /** A kinematic body whose position is driven directly — flippers, plunger. */
@@ -182,13 +207,15 @@ export class PhysicsPlane {
         .setRotation(angle),
     );
 
-    this.world.createCollider(
+    const collider = this.world.createCollider(
       RAPIER.ColliderDesc.capsule(halfLength * SCALE, radius * SCALE)
         .setRestitution(MATERIALS.flipper.restitution)
         .setFriction(MATERIALS.flipper.friction)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
         .setCollisionGroups(staticGroups(ZONE.TABLE)),
       body,
     );
+    this.kinds.set(collider.handle, "flipper");
 
     return body;
   }
@@ -206,7 +233,7 @@ export class PhysicsPlane {
 
     let steps = 0;
     while (this.accumulator >= FIXED_STEP && steps < MAX_SUBSTEPS) {
-      this.world.step();
+      this.world.step(this.events);
       this.accumulator -= FIXED_STEP;
       steps++;
     }

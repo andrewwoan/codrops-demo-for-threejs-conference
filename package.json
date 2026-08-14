@@ -16,6 +16,7 @@
     "@dimforge/rapier2d-compat": "^0.20.0",
     "events": "^3.3.0",
     "gsap": "^3.14.2",
+    "howler": "^2.2.4",
     "normalize-wheel": "^1.0.1",
     "three": "^0.183.2"
   }

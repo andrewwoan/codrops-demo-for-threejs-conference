@@ -9,7 +9,7 @@ import { Mouse } from "./Mouse";
 import { Raycaster } from "./Raycaster";
 import { Device } from "./Utils/Device";
 import { ZoomSlider } from "./ZoomSlider";
-// import { Preloader } from "./Preloader"; // temporarily disabled
+import { Preloader } from "./Preloader";
 import { DebugTransform } from "./DebugTransform";
 
 export class Experience {
@@ -66,8 +66,13 @@ export class Experience {
     // the site — Preloader flips it false while its sheet is up.
     this.started = true;
 
+    // Whether the board is silent. Set before Resources, because World builds
+    // on "ready" and Plinko reads this when it constructs its Audio — by then
+    // the preloader has already recorded which Enter was pressed.
+    this.audioMuted = false;
+
     this.resources = new Resources();
-    // this.preloader = new Preloader(); // temporarily disabled
+    this.preloader = new Preloader();
 
     this.world = new World();
 
@@ -77,6 +82,25 @@ export class Experience {
     this.sizes.on("resize", () => {
       this.resize();
     });
+  }
+
+  /**
+   * The one switch for sound. Three things reach it — the preloader's two Enter
+   * buttons, the nameplate in the top-right corner, and the debug panel — and
+   * all of them come through here, so the button can never be showing one state
+   * while you are hearing the other.
+   *
+   * Everything downstream is optional on purpose: this can be called before
+   * World has built (the preloader is up long before "ready" on a cold cache),
+   * and Plinko reads `audioMuted` when it constructs Audio for exactly that
+   * case.
+   */
+  setAudioMuted(muted) {
+    this.audioMuted = muted;
+
+    const plinko = this.world?.plinko;
+    plinko?.audio?.setMuted(muted);
+    plinko?.soundToggle?.set(muted);
   }
 
   resize() {

@@ -29,10 +29,11 @@ const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
 export class Flippers {
-  constructor({ plane, meshes, gui, controls = null }) {
+  constructor({ plane, meshes, gui, controls = null, audio = null }) {
     this.plane = plane;
     this.frame = plane.frame;
     this.controls = controls;
+    this.audio = audio;
 
     // Live, so the #debug sliders actually retune the feel while you play.
     this.settings = {
@@ -133,9 +134,15 @@ export class Flippers {
   }
 
   bindInput() {
+    // Keyboard and touch both funnel through here, so the edge test also
+    // dedupes a key held down or a second finger landing on the same button.
     const set = (index, pressed) => {
       const flipper = this.flippers[index];
-      if (flipper) flipper.pressed = pressed;
+      if (!flipper || flipper.pressed === pressed) return;
+
+      flipper.pressed = pressed;
+      if (pressed) this.audio?.flipper();
+      else this.audio?.flipperReturn();
     };
 
     this.onKey = (event) => {

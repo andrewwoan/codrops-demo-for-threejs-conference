@@ -93,6 +93,11 @@ export class ArchRail {
     this.frame = frame;
     this.ballRadius = ballRadius;
 
+    // Width of the running surface across the rail, measured in extract(). Used
+    // to size anything that has to sit ON the rail without hanging off its
+    // sides — currently the ball's contact shadow. 0 until measured.
+    this.width = 0;
+
     this.points = this.extract(mesh);
     this.length = this.points.length
       ? this.points[this.points.length - 1].s
@@ -274,6 +279,7 @@ export class ArchRail {
     }
 
     const ordered = [];
+    const widths = [];
     for (let i = 0; i < occupied.length; i++) {
       const bucket = bins.get(occupied[(gapAt + i) % occupied.length]);
 
@@ -281,15 +287,32 @@ export class ArchRail {
       let x = 0;
       let y = 0;
       let h = 0;
+      let minRadius = Infinity;
+      let maxRadius = -Infinity;
       for (const f of bucket) {
         weight += f.area;
         x += f.x * f.area;
         y += f.y * f.area;
         h += f.h * f.area;
+
+        // Radius about the fitted arc centre is the ACROSS-the-rail axis (that
+        // is the whole reason the bins are cut about that centre), so the
+        // spread within one bin is the running surface's width there.
+        const radius = Math.hypot(f.x - centre.x, f.y - centre.y);
+        if (radius < minRadius) minRadius = radius;
+        if (radius > maxRadius) maxRadius = radius;
       }
       if (weight <= 0) continue;
 
+      if (maxRadius > minRadius) widths.push(maxRadius - minRadius);
       ordered.push({ x: x / weight, y: y / weight, h: h / weight, s: 0 });
+    }
+
+    // Median, not mean: the bins at the mouths mix in end-cap geometry and read
+    // far wider than the rail actually is.
+    if (widths.length) {
+      widths.sort((a, b) => a - b);
+      this.width = widths[Math.floor(widths.length / 2)];
     }
 
     return ordered;

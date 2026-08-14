@@ -8,8 +8,13 @@ import gsap from "gsap";
  *
  * Three beats, driven off Resources:
  *   progress  → fill the bar
- *   ready     → swap the bar out for the intro copy + Enter button
+ *   ready     → swap the bar out for the intro copy + the two Enter buttons
  *   Enter     → fade the sheet out and hand control to the experience
+ *
+ * The two buttons differ only in whether sound is on afterwards. Doing it here
+ * rather than behind a toggle inside the scene is what makes the board audible
+ * at all: browsers refuse to play anything until the page has been clicked, and
+ * this click is the one every visitor makes.
  *
  * The gap between "ready" and the Enter click is doing real work beyond copy:
  * World builds the scene synchronously on "ready", and any shader/pipeline
@@ -34,9 +39,8 @@ export class Preloader extends EventEmitter {
     // overlay doesn't move the scene behind it.
     this.experience.started = false;
 
-    document.getElementById("enter-btn").addEventListener("click", () => {
-      this._dismiss();
-    });
+    this._bindEnter("enter-audio-btn", false);
+    this._bindEnter("enter-silent-btn", true);
 
     this.resources.on("progress", (value) => {
       this.onLoad(value);
@@ -45,6 +49,13 @@ export class Preloader extends EventEmitter {
     this.resources.on("ready", () => {
       this.playOutro();
     });
+  }
+
+  /** Both Enter buttons do the same thing; they disagree only about sound. */
+  _bindEnter(id, muted) {
+    document
+      .getElementById(id)
+      ?.addEventListener("click", () => this._dismiss(muted));
   }
 
   onLoad(value) {
@@ -72,9 +83,14 @@ export class Preloader extends EventEmitter {
   }
 
   /** Hand over to the experience. */
-  _dismiss() {
+  _dismiss(muted = false) {
     if (this._dismissing) return; // double-click would restart the animation
     this._dismissing = true;
+
+    // Routed through Experience rather than at the board's Audio directly: it
+    // owns the flag, so the sound nameplate in the corner starts out agreeing
+    // with whichever button was pressed here.
+    this.experience.setAudioMuted(muted);
     this.experience.started = true;
 
     gsap.to(this.preloader, {
