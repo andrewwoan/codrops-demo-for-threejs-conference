@@ -63,6 +63,23 @@ const SMOOTH_PASSES = 3;
 // jumps at the wide segments, which the ball rides as a visible kink.
 const RESAMPLE_SPACING = 0.5;
 
+// Bins dropped from each end before anything else. The top-face ribbon frays
+// where it meets the end caps, and the final bin there mixes cap geometry into
+// the average — measured, one landed hard against the inner rim. They are
+// replaced by the extrapolation below, so nothing is lost.
+const TRIM_END_BINS = 1;
+
+// The mouths must meet the floor. Measured, they sat at 0.76 and 0.91 ball
+// radii ABOVE the playfield, and since a ball renders at ridge height plus its
+// radius, every exit dropped it most of a radius the instant it rejoined the
+// table — and every entry popped it up the same amount. At the mouth, which is
+// exactly where it looked like the ball fell through the ramp.
+//
+// Each end is extrapolated along its own last segment until it reaches floor
+// level. The cap is on how far that is allowed to run, so a ridge that happens
+// to end level cannot throw a point off into space.
+const MAX_END_EXTENSION = 3;
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -94,8 +111,12 @@ export class ArchRail {
     const ordered = this.binAndAverage(faces, centre);
     if (ordered.length < 4) return [];
 
+    this.trimEnds(ordered);
+    if (ordered.length < 4) return [];
+
     this.medianFilter(ordered);
     this.smooth(ordered);
+    this.extendToFloor(ordered);
     this.measure(ordered);
 
     const even = this.resample(ordered);
@@ -272,6 +293,45 @@ export class ArchRail {
     }
 
     return ordered;
+  }
+
+  /** Drop the frayed bins where the ribbon meets the end caps. */
+  trimEnds(points) {
+    if (points.length <= TRIM_END_BINS * 2 + 4) return;
+    points.splice(0, TRIM_END_BINS);
+    points.splice(points.length - TRIM_END_BINS, TRIM_END_BINS);
+  }
+
+  /**
+   * Run each end on along its own last segment until it reaches the playfield,
+   * so a ball rolls onto and off the rail without a step in height.
+   */
+  extendToFloor(points) {
+    const project = (endIndex, innerIndex) => {
+      const end = points[endIndex];
+      const inner = points[innerIndex];
+
+      // Height change moving OUTWARD, toward the mouth. If it is not
+      // descending there is nothing sensible to extend toward.
+      const drop = end.h - inner.h;
+      if (drop >= -1e-6) return null;
+
+      const steps = end.h / -drop;
+      if (!(steps > 0) || steps > MAX_END_EXTENSION) return null;
+
+      return {
+        x: end.x + (end.x - inner.x) * steps,
+        y: end.y + (end.y - inner.y) * steps,
+        h: 0,
+        s: 0,
+      };
+    };
+
+    const head = project(0, 1);
+    const tail = project(points.length - 1, points.length - 2);
+
+    if (head) points.unshift(head);
+    if (tail) points.push(tail);
   }
 
   /**
