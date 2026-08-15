@@ -11,6 +11,7 @@ This repo contains code of a Plinko + Pinball combination for a Codrops article!
 - [Wooden Material](https://www.artstation.com/marketplace/p/Nw8nd/blender-smart-material-wood)
 - [howler.js](https://howlerjs.com/) — MIT — audio playback
 - [Baguette Basket](https://sketchfab.com/3d-models/baguette-basket-227e1cfecce148318531bc1b157192d7) - By Armin Rezaei
+- [Eiffel tower](https://sketchfab.com/3d-models/eiffel-tower-935473631ca54558b4194d06944cb797) - By dannzjs
 
 ## Audio
 
