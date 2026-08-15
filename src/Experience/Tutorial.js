@@ -33,6 +33,19 @@ const ARROW_RIGHT = icon(`<path d="M9.5 5.5 16 12l-6.5 6.5" />`);
 // The spacebar, drawn the way the ␣ glyph is: a rule with the ends turned down.
 const SPACE_BAR = icon(`<path d="M5 10v4M19 10v4M5 14h14" />`);
 
+// Dropping a ball is the one hint whose glyph is the input device rather than
+// a control on screen — there is no button for it, you click the board itself.
+const CURSOR = icon(
+  `<path d="M6 3.6 6 16.4l3.4-3.1 2.1 4.9 2.3-1-2-4.7 4.6-.2z" />`,
+  { fill: "currentColor" },
+);
+
+// A fingertip with the tap ringing out from under it.
+const TAP = icon(`
+  <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" />
+  <path d="M7.2 7.2a6.8 6.8 0 0 0 0 9.6" />
+  <path d="M16.8 16.8a6.8 6.8 0 0 0 0-9.6" />`);
+
 // Solid triangles, matching the glyphs on the thumb buttons themselves.
 const TRIANGLE_LEFT = icon(`<path d="M15 5.5 7.5 12 15 18.5z" />`, {
   fill: "currentColor",
@@ -61,16 +74,22 @@ export class Tutorial {
     this.build();
   }
 
-  /** @returns [{ keys: [markup], label }] for whichever device this is. */
+  /**
+   * @returns [{ keys: [markup], label }] for whichever device this is, in the
+   * order a first-time visitor needs them: get a ball on the board, keep it
+   * alive, then put it back into play.
+   */
   get rows() {
     if (this.touch) {
       return [
+        { keys: [TAP], label: "Tap to drop" },
         { keys: [TRIANGLE_LEFT, TRIANGLE_RIGHT], label: "Flippers" },
         { keys: [TRIANGLE_UP], label: "Hold to launch" },
       ];
     }
 
     return [
+      { keys: [CURSOR], label: "Click to drop" },
       { keys: [ARROW_LEFT, ARROW_RIGHT], label: "Flippers" },
       { keys: [SPACE_BAR], label: "Hold to launch", wide: true },
     ];

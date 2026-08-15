@@ -499,9 +499,9 @@ body {
   justify-content: center;
   gap: 18px;
   /* One line, until there isn't room for one — a phone in portrait is narrower
-     than both hints laid end to end. */
+     than three hints laid end to end. */
   flex-wrap: wrap;
-  max-width: min(92vw, 640px);
+  max-width: min(92vw, 720px);
   /* A note, never a target — the click that lands on it is the one that
      dismisses it, and it has to reach the board underneath. */
   pointer-events: none;
@@ -737,10 +737,8 @@ body {
     0 4px 10px rgba(18, 22, 10, 0.45);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease,
-    color 0.15s ease;
+  /* No transition: hover and press land on the frame they happen. Wood doesn't
+     ease into being pressed. */
 }
 
 .preloader__btn--primary:hover {
@@ -771,9 +769,6 @@ body {
   text-decoration: underline;
   text-decoration-color: rgba(240, 185, 110, 0.4);
   text-underline-offset: 3px;
-  transition:
-    color 0.15s ease,
-    text-decoration-color 0.15s ease;
 }
 
 .preloader__credits-link:hover,

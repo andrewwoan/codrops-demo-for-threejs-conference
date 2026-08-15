@@ -64,7 +64,7 @@ export class Preloader extends EventEmitter {
     this.percentText.textContent = `${pct}%`;
   }
 
-  /** Bar out, intro in. */
+  /** Bar out, intro in — a straight swap, no fade or drift on the way in. */
   playOutro() {
     gsap.to(this.loadingEl, {
       opacity: 0,
@@ -73,11 +73,6 @@ export class Preloader extends EventEmitter {
       onComplete: () => {
         this.loadingEl.style.display = "none";
         this.introEl.style.display = "flex";
-        gsap.fromTo(
-          this.introEl,
-          { opacity: 0, y: 8 },
-          { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" },
-        );
       },
     });
   }
