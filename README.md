@@ -2,7 +2,7 @@
 
 **[Live site](https://codrops-demo-for-threejs-conference-ten.vercel.app/)** | **[Article - Coming Soon]()**
 
-This repo contains code of a Plinko + Pinball combination for a Codrops article!! It's a portfolio website created with [Blender](https://www.blender.org/) and [Three.js](https://threejs.org/).
+This repo contains code of a Plinko + Pinball combination for a Codrops article!! It's a troll demo website created with [Blender](https://www.blender.org/) and [Three.js](https://threejs.org/).
 
 ![Page screenshot](public/media/og-image.webp?raw=true "Page Screenshot")
 
