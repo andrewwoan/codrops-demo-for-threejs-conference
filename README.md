@@ -1,4 +1,4 @@
-# 🪵 Three.js & Blender Plinkopinball - A Codrops Demo 🪴
+# 🪵 Plinkopinball - A Codrops Demo 🪴
 
 **[Live site](https://codrops-demo-for-threejs-conference-ten.vercel.app/)** | **[Article - Coming Soon]()**
 
