@@ -268,6 +268,10 @@ export class Plinko {
     }
     this.drawRailDebug();
 
+    // Ahead of Balls: contacts that happen on the arch rail are resolved in
+    // 1D and never reach the solver, so Balls raises their sound itself.
+    this.audio = new Audio({ muted: this.experience.audioMuted });
+
     this.balls = new Balls({
       scene: this.scene,
       sourceMesh: this.ballMesh,
@@ -276,6 +280,7 @@ export class Plinko {
       tablePlane: this.tablePlane,
       resources: this.experience.resources,
       rail: this.archRail?.valid ? this.archRail : null,
+      audio: this.audio,
       // Shadow gradient, keyed to the table's own frame. The bake darkens the
       // lower part of the playfield; the ramp runs from the drain up to 45% of
       // the way along, which is roughly where the painted shadow fades out.
@@ -303,7 +308,6 @@ export class Plinko {
 
     // Before the controls: the flippers and plunger hold a reference to it
     // so they can sound their own mechanism, independent of ball contact.
-    this.audio = new Audio({ muted: this.experience.audioMuted });
 
     // Always constructed: the thumb bar inside it is touch-only, but the
     // utility buttons (reset) show everywhere.

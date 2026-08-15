@@ -19,7 +19,7 @@ import { BallShadows } from "./BallShadows.js";
 // Pool size, and therefore the cap: spawning past this recycles the oldest
 // ball rather than allocating. Meshes and bodies are all created up front, so
 // this is the peak cost, not the idle one.
-const MAX_BALLS = 50;
+const MAX_BALLS = 1000;
 
 // How much speed survives the drop off the peg board onto the playfield. The
 // ball lands on a surface angled away from its fall, so most of the vertical
@@ -44,8 +44,6 @@ const ENTRY_CLEARANCE = 2.5;
 // surface has escaped, whatever the route, and gets recycled.
 const OUT_OF_BOUNDS_MARGIN = 4;
 
-// Ball-search, same idea as a real machine: a ball that has barely moved for
-// this long gets nudged downhill rather than ending the game quietly.
 // --- Arch rail ------------------------------------------------------------
 // A ball reaching either mouth of the arch, moving into it fast enough, leaves
 // the 2D solver and becomes a bead on the rail. See ArchRail.js.
@@ -69,6 +67,18 @@ const RAIL_DAMPING = 0.5;
 // immediately recaptured by it.
 const RAIL_RECAPTURE_MS = 300;
 const RAIL_SUBSTEPS = 4;
+
+// Ball-to-ball contact ON the rail.
+//
+// A ball riding the arch has no rigid body — it is a scalar along a curve — so
+// the solver cannot see it and two of them pass straight through each other.
+// They are beads on the same wire, which makes the contact a 1D problem: two
+// balls touch when their arc-length separation closes to a diameter.
+//
+// Restitution matches the ball material, so wood on wood sounds and behaves the
+// same whether the hit happens on the table or up on the arch.
+const RAIL_CONTACT_PASSES = 2;
+const RAIL_RESTITUTION = 0.08;
 // Gravity multiplier on the rail only.
 //
 // The rail is the one place the ball feels gravity's INTO-surface component
@@ -109,12 +119,14 @@ export class Balls {
     shading = null,
     shadows = null,
     rail = null,
+    audio = null,
   }) {
     this.scene = scene;
     this.resources = resources;
     this.shading = shading;
     this.shadowSettings = shadows;
     this.rail = rail;
+    this.audio = audio;
 
     // Live, because the useful range here is narrow: a ball free-rolling the
     // length of the table arrives at roughly 3.8 units/s, and the arch needs
@@ -316,6 +328,10 @@ export class Balls {
     const dt = Math.min(deltaMs, 100) / 1000;
     this.rollingActivity = 0;
 
+    // Everything on the arch this frame, resolved together once they have all
+    // been integrated.
+    const railBalls = [];
+
     for (const ball of this.pool) {
       if (!ball.alive) continue;
 
@@ -323,6 +339,9 @@ export class Balls {
       if (ball.rail) {
         this.rollingActivity += Math.abs(ball.rail.v);
         this.updateRail(ball, dt, now);
+        // updateRail may have released it back to the table, in which case it
+        // has already drawn itself and is no longer our problem.
+        if (ball.rail) railBalls.push(ball);
         continue;
       }
 
@@ -356,6 +375,12 @@ export class Balls {
       }
 
       this.writeInstance(ball, now);
+    }
+
+    if (railBalls.length > 1) this.resolveRailContacts(railBalls);
+    for (const ball of railBalls) {
+      this.rail.sample(ball.rail.s, _sample);
+      this.writeRailInstance(ball, now, _sample);
     }
 
     if (this.dirty) {
@@ -465,8 +490,54 @@ export class Balls {
       return;
     }
 
-    rail.sample(ball.rail.s, _sample);
-    this.writeRailInstance(ball, now, _sample);
+    // Deliberately does NOT write the instance. Positions are only final once
+    // resolveRailContacts has run over every ball on the rail, and drawing here
+    // would show them a frame before they were separated.
+  }
+
+  /**
+   * Ball-to-ball contact along the rail.
+   *
+   * Sorted by arc length, so only neighbours can touch and the whole thing is a
+   * single linear sweep. Equal masses make the exchange symmetric.
+   *
+   * Several relaxation passes because a chain of three or more will not settle
+   * from one: separating the first pair can push its lower ball into the one
+   * below, and that needs resolving too.
+   */
+  resolveRailContacts(balls) {
+    const minimum = this.radius * 2;
+    balls.sort((a, b) => a.rail.s - b.rail.s);
+
+    for (let pass = 0; pass < RAIL_CONTACT_PASSES; pass++) {
+      for (let i = 1; i < balls.length; i++) {
+        const lower = balls[i - 1];
+        const upper = balls[i];
+
+        const gap = upper.rail.s - lower.rail.s;
+        if (gap >= minimum) continue;
+
+        // Push apart, half each.
+        const overlap = (minimum - gap) * 0.5;
+        lower.rail.s -= overlap;
+        upper.rail.s += overlap;
+
+        // Only exchange momentum if they are actually closing. Two balls
+        // resting in contact are already resolved and must not be given energy.
+        const closing = upper.rail.v - lower.rail.v;
+        if (closing >= 0) continue;
+
+        const e = RAIL_RESTITUTION;
+        const lv = lower.rail.v;
+        const uv = upper.rail.v;
+        lower.rail.v = ((1 - e) * lv + (1 + e) * uv) * 0.5;
+        upper.rail.v = ((1 + e) * lv + (1 - e) * uv) * 0.5;
+
+        // The solver never sees this contact, so its sound has to be raised
+        // here rather than coming through the collision event drain.
+        this.audio?.impact("ball", Math.abs(closing));
+      }
+    }
   }
 
   /** Off the end of the rail and back into the 2D world. */

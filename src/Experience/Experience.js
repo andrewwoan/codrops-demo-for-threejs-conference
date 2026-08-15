@@ -10,6 +10,7 @@ import { Raycaster } from "./Raycaster";
 import { Device } from "./Utils/Device";
 import { ZoomSlider } from "./ZoomSlider";
 import { Preloader } from "./Preloader";
+import { Tutorial } from "./Tutorial";
 import { DebugTransform } from "./DebugTransform";
 
 export class Experience {
@@ -73,6 +74,16 @@ export class Experience {
 
     this.resources = new Resources();
     this.preloader = new Preloader();
+
+    // The controls card. Built now, shown only once the preloader sheet is
+    // gone — behind it there is nothing to try the controls on. If the
+    // preloader is ever pulled out again, it simply shows straight away.
+    this.tutorial = new Tutorial();
+    if (this.preloader) {
+      this.preloader.on("preloaderfinished", () => this.tutorial.show());
+    } else {
+      this.tutorial.show();
+    }
 
     this.world = new World();
 

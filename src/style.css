@@ -481,6 +481,124 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+   Controls card — bottom centre, until the first thing the visitor does. Built
+   by Experience/Tutorial.js, which also owns which keys it shows.
+
+   No plate under it: a second slab this size would read as another control to
+   press. The keys are carved, the words are burnt into the air beside them, and
+   the whole thing is out of the way before it can get boring.
+--------------------------------------------------------------------------- */
+.tutorial {
+  position: fixed;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  /* One line, until there isn't room for one — a phone in portrait is narrower
+     than both hints laid end to end. */
+  flex-wrap: wrap;
+  max-width: min(92vw, 640px);
+  /* A note, never a target — the click that lands on it is the one that
+     dismisses it, and it has to reach the board underneath. */
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* On touch the thumb bar owns the bottom of the screen and the zoom lever sits
+   above it — clear both, or the card lands on the controls it is describing. */
+.tutorial--touch {
+  bottom: calc(168px + env(safe-area-inset-bottom));
+}
+
+.tutorial__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* A hairline between the two hints, so they read as two instructions on one
+   line rather than one long phrase. Drawn on the second hint, and it comes
+   with the wrap — if the line breaks, the rule goes to the row above with the
+   item it belonged to. */
+.tutorial__row + .tutorial__row::before {
+  content: "";
+  width: 1px;
+  height: 20px;
+  margin-right: 8px;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(240, 220, 192, 0),
+    rgba(240, 220, 192, 0.3),
+    rgba(240, 220, 192, 0)
+  );
+}
+
+.tutorial__keys {
+  display: flex;
+  gap: 6px;
+}
+
+/* A carved key: the same oak as the buttons, at the size of a keycap. Touch
+   gets the round knob instead, matching the thumb buttons it points at. */
+.tutorial__key {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(28, 16, 8, 0.55);
+  border-radius: 5px;
+  background-image: linear-gradient(
+      165deg,
+      rgba(138, 92, 51, 0.92),
+      rgba(74, 46, 22, 0.98)
+    ),
+    var(--grain);
+  background-size:
+    auto,
+    260px auto;
+  background-blend-mode: multiply;
+  color: var(--engraved);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 219, 168, 0.24),
+    inset 0 -3px 6px rgba(22, 11, 4, 0.45),
+    0 3px 8px rgba(20, 12, 5, 0.4);
+}
+
+/* The spacebar is recognised by its shape before anything drawn on it. */
+.tutorial__key--wide {
+  width: 92px;
+}
+
+.tutorial--touch .tutorial__key {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+}
+
+.tutorial__key svg {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(24, 12, 4, 0.65));
+}
+
+.tutorial__label {
+  font-family: var(--ui-font);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(240, 220, 192, 0.72);
+  /* No plate behind the words, so they carry their own shadow — the board
+     underneath is light oak in places and the lettering has to hold up on it. */
+  text-shadow:
+    0 1px 2px rgba(20, 12, 5, 0.75),
+    0 0 12px rgba(20, 12, 5, 0.5);
+}
+
+/* ---------------------------------------------------------------------------
    Preloader — the sage planking behind the board, with the copy burnt into it.
    The class names are what Preloader.js queries.
 --------------------------------------------------------------------------- */
@@ -631,6 +749,43 @@ body {
     inset 0 1px 0 rgba(255, 231, 190, 0.34),
     inset 0 -3px 6px rgba(22, 11, 4, 0.4),
     0 6px 14px rgba(18, 22, 10, 0.5);
+}
+
+/* The credits line — a maker's mark pencilled under the doors rather than
+   another thing to decide between. Pulled up tight against the buttons: the
+   30px the intro column is spaced on reads as a third choice at this size.
+--------------------------------------------------------------------------- */
+.preloader__credits {
+  margin-top: -16px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(240, 220, 192, 0.6);
+  text-shadow: 0 1px 1px rgba(24, 30, 14, 0.45);
+}
+
+/* Underlined at a distance from the baseline, the way the rest of the set
+   avoids hard lines. It goes warm on hover — the same light-catching move the
+   buttons make, so it reads as part of the same woodwork. */
+.preloader__credits-link {
+  color: rgba(240, 185, 110, 0.85);
+  text-decoration: underline;
+  text-decoration-color: rgba(240, 185, 110, 0.4);
+  text-underline-offset: 3px;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
+}
+
+.preloader__credits-link:hover,
+.preloader__credits-link:focus-visible {
+  color: #ffd08a;
+  text-decoration-color: rgba(255, 208, 138, 0.8);
+}
+
+.preloader__credits-link:focus-visible {
+  outline: 1px solid rgba(255, 226, 184, 0.55);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 /* The quiet door. Same piece of oak, left unpolished — no lit top edge, paler
