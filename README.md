@@ -1,6 +1,6 @@
 # 🪵 Plinkopinball - A Codrops Demo 🪴
 
-**[Live site](https://codrops-demo-for-threejs-conference-ten.vercel.app/)** | **[Article - Coming Soon]()**
+**[Live site](https://codrops-demo-for-threejs-conference-ten.vercel.app/)** | **[Article](https://tympanus.net/codrops/2026/08/24/blender-to-three-js-and-back-10-tips-for-a-better-workflow/)**
 
 This repo contains code of a Plinko + Pinball combination for a Codrops article!! It's a troll demo website created with [Blender](https://www.blender.org/) and [Three.js](https://threejs.org/).
 
