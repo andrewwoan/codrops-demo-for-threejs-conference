@@ -1,5 +1,6 @@
 import * as THREE from "three/webgpu";
 import { Experience } from "./Experience";
+import { TAP_SLOP } from "./Mouse";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
 
 // The default shot, captured with the debug panel's "Log Camera State" button.
@@ -88,7 +89,10 @@ export class Camera {
     this.focusRotation = new THREE.Euler(...FOCUS_ROTATION);
     this.focusTarget = new THREE.Vector3(...FOCUS_TARGET);
 
-    // Last touch Y, for turning touchmove into a per-frame delta.
+    // Where the current touch went down, and the last Y the scrub was measured
+    // from. `lastTouchY` stays null until the finger has cleared TAP_SLOP, so a
+    // tap — which always jitters a pixel or two — never winds the camera.
+    this.touchAnchorY = null;
     this.lastTouchY = null;
 
     // The shot itself. Parallax is layered on top of this each frame rather
@@ -162,10 +166,12 @@ export class Camera {
         // dragging the zoom knob (or any other on-screen control) would also
         // haul the camera through the transition under your thumb.
         if (event.target !== this.experience.canvasElement) {
+          this.touchAnchorY = null;
           this.lastTouchY = null;
           return;
         }
-        this.lastTouchY = event.touches[0]?.clientY ?? null;
+        this.touchAnchorY = event.touches[0]?.clientY ?? null;
+        this.lastTouchY = null;
       },
       { passive: true },
     );
@@ -174,7 +180,17 @@ export class Camera {
       "touchmove",
       (event) => {
         const y = event.touches[0]?.clientY;
-        if (y === undefined || this.lastTouchY === null) return;
+        if (y === undefined || this.touchAnchorY === null) return;
+
+        // Nothing scrubs until the finger has travelled far enough to mean it.
+        // The delta is then measured from where it crossed rather than from
+        // where it landed, so the camera picks the gesture up from a standstill
+        // instead of jumping the slop distance on the first frame of a drag.
+        if (this.lastTouchY === null) {
+          if (Math.abs(y - this.touchAnchorY) <= TAP_SLOP) return;
+          this.lastTouchY = y;
+          return;
+        }
 
         // Finger down runs toward the focus shot, matching wheel-up.
         const dragged = y - this.lastTouchY;
@@ -189,6 +205,7 @@ export class Camera {
     // Dropping the finger has to clear the anchor, otherwise the next touch
     // starts from wherever the last one ended and jumps the transition.
     const clearTouch = () => {
+      this.touchAnchorY = null;
       this.lastTouchY = null;
     };
     window.addEventListener("touchend", clearTouch, { passive: true });
@@ -371,6 +388,7 @@ export class Camera {
   resetToDefault() {
     this.transition.progress = 0;
     this.transition.target = 0;
+    this.touchAnchorY = null;
     this.lastTouchY = null;
 
     // Straight to 1 rather than easing there: this is a hard reset, and the
