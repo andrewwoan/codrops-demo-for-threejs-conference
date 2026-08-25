@@ -30,12 +30,19 @@ export class Camera {
     // `position` is in world units, `rotation` in radians, both at full
     // deflection (pointer at the edge of the screen). `smoothing` is the
     // exponential follow rate — higher is snappier, lower is floatier.
-    // `vertical` is off on touch: the camera only slides and turns left/right
-    // there. Vertical drags on a phone are scroll-shaped gestures, and letting
-    // them pitch the camera as well as scrub the transition made the view feel
-    // like it was sliding out from under the board.
+    //
+    // Desktop only. A mouse hovers, so the camera can lean toward a pointer
+    // that isn't asking for anything; a finger only ever touches the glass to
+    // act, and leaning away from it while it acts is what put the ball in the
+    // wrong column. The drag-down transition below is untouched — that is the
+    // gesture that moves the camera on a phone, and the only one.
+    //
+    // `vertical` only matters if this is switched back on from the debug panel
+    // while on a phone: vertical drags there are scroll-shaped gestures, and
+    // letting them pitch the camera as well as scrub the transition made the
+    // view feel like it was sliding out from under the board.
     this.parallax = {
-      enabled: true,
+      enabled: !this.experience.device?.isMobileDevice,
       vertical: !this.experience.device?.isMobileDevice,
       positionX: 0.2,
       positionY: 0.25,
@@ -340,7 +347,7 @@ export class Camera {
     zoom.add(this.zoom, "smoothing", 0.5, 20, 0.1).name("Smoothing");
 
     const parallax = folder.addFolder("Mouse Parallax");
-    parallax.add(this.parallax, "enabled").name("Enabled");
+    parallax.add(this.parallax, "enabled").name("Enabled (off on touch)");
     parallax.add(this.parallax, "vertical").name("Vertical (off on touch)");
     parallax.add(this.parallax, "positionX", 0, 2, 0.01).name("Move X");
     parallax.add(this.parallax, "positionY", 0, 2, 0.01).name("Move Y");
