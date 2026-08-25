@@ -39,6 +39,17 @@ body {
   --sage: #79855f;
   --sage-deep: #4a5239;
   --grain: url("/textures/wood/color.webp");
+  /* The opaque floor under every `background-blend-mode: multiply` stack in
+     this sheet. It is never seen — the grain above it has no alpha channel, so
+     on a browser that follows the spec this colour changes nothing.
+
+     It is here for WebKit, which blends the bottom layer against the
+     background-color even when that colour is `transparent` — i.e. against
+     black. Multiply anything by black and you get black, which is what the
+     Enter buttons, the board controls and the zoom lever turn into on iOS
+     without a real colour to sit on. A mid-oak, so a grain image that fails to
+     load leaves wood behind rather than a white slab. */
+  --grain-base: #8a5c33;
   --ui-font: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
     "Times New Roman", serif;
 }
@@ -67,6 +78,7 @@ body {
   background-size:
     auto,
     260px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   color: var(--engraved);
   font-family: var(--ui-font);
@@ -320,6 +332,7 @@ body {
   background-size:
     auto,
     260px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   box-shadow:
     inset 0 1px 0 rgba(255, 219, 168, 0.24),
@@ -402,6 +415,7 @@ body {
   background-size:
     auto,
     90px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   box-shadow:
     inset 0 1px 0 rgba(255, 226, 184, 0.38),
@@ -423,6 +437,7 @@ body {
   background-size:
     auto,
     90px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   box-shadow:
     inset 0 1px 0 rgba(255, 226, 184, 0.38),
@@ -505,6 +520,12 @@ body {
   /* A note, never a target — the click that lands on it is the one that
      dismisses it, and it has to reach the board underneath. */
   pointer-events: none;
+  /* Built at startup but not shown until the preloader is gone, so it starts
+     invisible. Without this it sits at full opacity behind the sheet and is
+     revealed by the sheet's own fade, only for Tutorial.show() to blink it
+     back to zero and fade it in a second time. GSAP writes the inline opacity
+     from there on. */
+  opacity: 0;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -561,6 +582,7 @@ body {
   background-size:
     auto,
     260px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   color: var(--engraved);
   box-shadow:
@@ -724,6 +746,7 @@ body {
   background-size:
     auto,
     260px auto;
+  background-color: var(--grain-base);
   background-blend-mode: multiply;
   color: var(--engraved);
   font-family: inherit;
